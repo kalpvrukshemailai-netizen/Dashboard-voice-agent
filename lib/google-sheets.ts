@@ -17,6 +17,13 @@ export interface Lead {
   interestReason: string | null;
   conversationId: string | null;
   calledAt: string | null;
+  enquiryId?: string;
+  queueClass?: string;
+  attemptSequenceCount?: number;
+  customerNoAnswerCount?: number;
+  nextRetryAt?: string | null;
+  latestOutcomeId?: string | null;
+  latestDisposition?: string | null;
 }
 
 export interface GoogleSheetLeadRaw {
@@ -116,7 +123,7 @@ export const FALLBACK_DEMO_LEADS: Lead[] = [
     callStatus: "Pending",
     interested: null,
     interestStatus: null,
-    propertyInterest: "3-4 BHK Luxury Apartment",
+    propertyInterest: "HSK Heights (3-4 BHK Luxury)",
     budgetRange: "₹2.5 Cr - ₹3.5 Cr",
     preferredLocation: "Sindhu Bhavan / SG Highway",
     timeline: "Within 3 Months",
@@ -134,7 +141,7 @@ export const FALLBACK_DEMO_LEADS: Lead[] = [
     callStatus: "Completed",
     interested: false,
     interestStatus: "NOT INTERESTED",
-    propertyInterest: "Commercial Warehouse",
+    propertyInterest: "HSK Business Hub (Warehouse/Commercial)",
     budgetRange: "₹5 Cr - ₹7 Cr",
     preferredLocation: "Changodar Industrial Area",
     timeline: "More Than 12 Months",
@@ -152,7 +159,7 @@ export const FALLBACK_DEMO_LEADS: Lead[] = [
     callStatus: "Completed",
     interested: true,
     interestStatus: "INTERESTED",
-    propertyInterest: "Commercial High-Street Retail",
+    propertyInterest: "HSK Meadows (High-Street Retail)",
     budgetRange: "₹1.8 Cr - ₹2.2 Cr",
     preferredLocation: "Bodakdev",
     timeline: "Immediate",
@@ -170,7 +177,7 @@ export const FALLBACK_DEMO_LEADS: Lead[] = [
     callStatus: "Completed",
     interested: true,
     interestStatus: "INTERESTED",
-    propertyInterest: "Pre-Leased Commercial Office",
+    propertyInterest: "HSK Signature Villa (Luxury Estate)",
     budgetRange: "₹4.0 Cr - ₹6.0 Cr",
     preferredLocation: "GIFT City / Gandhinagar",
     timeline: "Within 3 Months",

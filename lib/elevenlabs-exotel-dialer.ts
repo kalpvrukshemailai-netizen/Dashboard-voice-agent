@@ -79,8 +79,10 @@ export async function initiateExotelOutboundCall(
     conversation_initiation_client_data: {
       dynamic_variables: {
         customer_name: customer_name.trim(),
+        lead_name: customer_name.trim(),
         project_interest: (project_interest || "General").trim(),
         enquiry_id: enquiry_id.trim(),
+        agency_name: "HSK Builder Group",
       },
     },
   };

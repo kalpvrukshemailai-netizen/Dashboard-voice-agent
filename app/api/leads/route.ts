@@ -38,6 +38,13 @@ function mapHskEnquiryToLead(enq: EnquiryRecord, idx: number): Lead {
     interestReason: enq.error_details || null,
     conversationId: enq.active_session_id || enq.latest_outcome_id || null,
     calledAt: enq.last_call_at || null,
+    enquiryId: enq.enquiry_id,
+    queueClass: enq.queue_class,
+    attemptSequenceCount: enq.attempt_sequence_count,
+    customerNoAnswerCount: enq.customer_no_answer_count,
+    nextRetryAt: enq.next_retry_at,
+    latestOutcomeId: enq.latest_outcome_id,
+    latestDisposition: enq.latest_disposition,
   };
 }
 

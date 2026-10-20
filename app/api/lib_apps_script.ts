@@ -13,10 +13,15 @@ export function assertAppsScriptUrl() {
 
 export async function callAppsScript(payload: Record<string, unknown>) {
   const url = assertAppsScriptUrl();
+  const secret = process.env.HSK_APPS_SCRIPT_SHARED_SECRET;
+  const bodyPayload = {
+    ...(secret ? { shared_secret: secret } : {}),
+    ...payload,
+  };
   const response = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
+    body: JSON.stringify(bodyPayload),
     cache: "no-store",
     redirect: "follow",
   });

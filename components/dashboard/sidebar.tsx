@@ -22,6 +22,7 @@ interface SidebarProps {
   isOpenMobile: boolean;
   onCloseMobile: () => void;
   leadCount: number;
+  agencyName?: string;
 }
 
 export function Sidebar({
@@ -30,6 +31,7 @@ export function Sidebar({
   isOpenMobile,
   onCloseMobile,
   leadCount,
+  agencyName = "HSK Builder Group",
 }: SidebarProps) {
   const navItems = [
     { id: "overview" as NavTab, label: "Overview", icon: LayoutDashboard },
@@ -116,7 +118,7 @@ export function Sidebar({
               className="block text-xs font-bold truncate text-white"
               style={{ fontFamily: "'Manrope', sans-serif" }}
             >
-              BEPROMPTER
+              {agencyName.toUpperCase()}
             </span>
           </div>
           {/* Online indicator */}

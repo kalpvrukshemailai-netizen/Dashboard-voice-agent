@@ -43,7 +43,7 @@ export default function DashboardPage() {
   // Settings / Connection State
   const [sheetUrl, setSheetUrl] = useState("");
   const [tab, setTab] = useState("Sheet1");
-  const [agencyName, setAgencyName] = useState("Beprompter");
+  const [agencyName, setAgencyName] = useState("HSK Builder Group");
   const [isDemoMode, setIsDemoMode] = useState(true);
   const [isTestingConnection, setIsTestingConnection] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<"idle" | "connected" | "error">("idle");
@@ -285,6 +285,7 @@ export default function DashboardPage() {
         isOpenMobile={isMobileMenuOpen}
         onCloseMobile={() => setIsMobileMenuOpen(false)}
         leadCount={leads.length}
+        agencyName={agencyName}
       />
 
       {/* Main Content Area */}
