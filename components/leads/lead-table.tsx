@@ -14,6 +14,7 @@ interface LeadTableProps {
   loading?: boolean;
   compact?: boolean;
   onViewAll?: () => void;
+  isDemo?: boolean;
 }
 
 export function LeadTable({
@@ -24,6 +25,7 @@ export function LeadTable({
   loading = false,
   compact = false,
   onViewAll,
+  isDemo = false,
 }: LeadTableProps) {
   if (loading) {
     return (
@@ -94,14 +96,21 @@ export function LeadTable({
       {compact && (
         <div className="px-5 py-4 sm:px-6 sm:py-4 border-b border-slate-100 flex items-center justify-between gap-3 min-w-0">
           <div className="min-w-0">
-            <h3
-              className="text-sm font-bold text-slate-900 truncate"
-              style={{ fontFamily: "'Manrope', sans-serif" }}
-            >
-              Recent Leads
-            </h3>
+            <div className="flex items-center gap-2">
+              <h3
+                className="text-sm font-bold text-slate-900 truncate"
+                style={{ fontFamily: "'Manrope', sans-serif" }}
+              >
+                Recent Leads
+              </h3>
+              {isDemo && (
+                <span className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 text-[10px] font-extrabold uppercase tracking-wider">
+                  Demo Sample
+                </span>
+              )}
+            </div>
             <p className="text-xs text-slate-500 mt-0.5 truncate">
-              Prospects ready for qualification.
+              {isDemo ? "Sample prospects for workflow demonstration." : "Prospects ready for qualification."}
             </p>
           </div>
 

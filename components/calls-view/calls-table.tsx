@@ -10,9 +10,10 @@ interface CallsTableProps {
   leads: Lead[];
   onSelectLead: (lead: Lead) => void;
   onCallLead: (lead: Lead) => void;
+  isDemo?: boolean;
 }
 
-export function CallsTable({ leads, onSelectLead, onCallLead }: CallsTableProps) {
+export function CallsTable({ leads, onSelectLead, onCallLead, isDemo = false }: CallsTableProps) {
   // Leads that have a call recorded or callStatus Completed/Calling
   const callRecords = leads.filter(
     (l) => l.callStatus === "Completed" || l.callStatus === "Calling" || l.calledAt,
@@ -31,15 +32,28 @@ export function CallsTable({ leads, onSelectLead, onCallLead }: CallsTableProps)
   return (
     <div className="space-y-4">
       {/* Top Banner */}
-      <div className="bg-white border border-slate-200/80 rounded-2xl p-5 shadow-xs flex items-center justify-between">
+      <div className={`bg-white border rounded-2xl p-5 shadow-xs flex items-center justify-between ${
+        isDemo ? "border-amber-200 bg-amber-50/40" : "border-slate-200/80"
+      }`}>
         <div>
-          <h3 className="text-sm font-bold text-slate-900">AI Voice Qualification Call Log</h3>
+          <div className="flex items-center gap-2">
+            <h3 className="text-sm font-bold text-slate-900">AI Voice Qualification Call Log</h3>
+            {isDemo && (
+              <span className="px-2 py-0.5 rounded bg-amber-100 text-amber-900 text-[10px] font-extrabold uppercase tracking-wider">
+                Demo Sample
+              </span>
+            )}
+          </div>
           <p className="text-xs text-slate-500 mt-0.5">
-            Synchronized with Google Sheet rows and ElevenLabs conversation webhook records.
+            {isDemo
+              ? "Displaying sample prospect call outcomes. Live webhook records will appear here once connected."
+              : "Synchronized with Google Sheet rows and ElevenLabs conversation webhook records."}
           </p>
         </div>
-        <div className="px-3 py-1 bg-slate-100 rounded-full text-xs font-bold text-slate-700">
-          {callRecords.length} calls logged
+        <div className={`px-3 py-1 rounded-full text-xs font-bold ${
+          isDemo ? "bg-amber-100 text-amber-900" : "bg-slate-100 text-slate-700"
+        }`}>
+          {callRecords.length} {isDemo ? "demo calls" : "calls logged"}
         </div>
       </div>
 

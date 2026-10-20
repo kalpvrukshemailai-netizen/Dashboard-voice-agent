@@ -54,6 +54,7 @@ export default function DashboardPage() {
   const [selectedLead, setSelectedLead] = useState<Lead | null>(FALLBACK_DEMO_LEADS[0] || null);
   const [isLoading, setIsLoading] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [connectionWarning, setConnectionWarning] = useState<string | null>(null);
 
   // Filters State
   const [filters, setFilters] = useState<FilterState>({
@@ -107,6 +108,7 @@ export default function DashboardPage() {
         if (data.success && Array.isArray(data.leads)) {
           setLeads(data.leads);
           setIsDemoMode(Boolean(data.isDemo));
+          setConnectionWarning(data.warning || null);
 
           // Functional updater to avoid dependency loop on selectedLead
           setSelectedLead((currentSelected) => {
@@ -130,6 +132,7 @@ export default function DashboardPage() {
         }
       } catch (err) {
         const msg = err instanceof Error ? err.message : "Error connecting to Google Sheets";
+        setConnectionWarning(msg);
         if (!silent) {
           toast(msg, "error");
         }
@@ -307,6 +310,50 @@ export default function DashboardPage() {
           className="flex-1 overflow-y-auto overflow-x-hidden w-full max-w-[1400px] mx-auto space-y-6 min-w-0"
           style={{ padding: "28px var(--content-px, 32px)" }}
         >
+          {/* Global Demo Mode Warning Banner across all views */}
+          {isDemoMode && (
+            <div
+              className="rounded-xl px-4 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs min-w-0 w-full shadow-xs"
+              style={{
+                background: "rgba(245, 158, 11, 0.08)",
+                border: "1px solid rgba(245, 158, 11, 0.28)",
+              }}
+            >
+              <div className="flex items-start sm:items-center gap-2.5 min-w-0 flex-1">
+                <div
+                  className="w-6 h-6 rounded-lg flex items-center justify-center shrink-0 mt-0.5 sm:mt-0"
+                  style={{ background: "rgba(245, 158, 11, 0.18)", color: "#B45309" }}
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                    <span className="font-extrabold text-amber-950 text-xs tracking-wide">
+                      DEMO MODE ACTIVE — DEMONSTRATION DATASET
+                    </span>
+                    <span className="text-amber-400 hidden sm:inline">•</span>
+                    <span className="text-[12px] text-amber-900 font-medium">
+                      Showing sample HSK Builder Group prospects. Live customer enquiries and call outcomes are NOT fabricated.
+                    </span>
+                  </div>
+                  {connectionWarning && (
+                    <p className="text-[11.5px] text-amber-800 mt-1 font-mono break-all">
+                      Integration Status: {connectionWarning} (Google Sheet Apps Script requires V1 Code.js update)
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              <button
+                onClick={() => setIsSettingsOpen(true)}
+                className="ds-btn ds-btn-secondary shrink-0 text-xs font-semibold self-start sm:self-center h-8 px-3"
+              >
+                <FileSpreadsheet className="w-3.5 h-3.5" />
+                Sheet Settings
+              </button>
+            </div>
+          )}
+
           {/* OVERVIEW TAB */}
           {activeTab === "overview" && (
             <div className="space-y-6 min-w-0 w-full">
@@ -344,42 +391,8 @@ export default function DashboardPage() {
                 </div>
               </div>
 
-              {/* Section B: Data Connection Status */}
-              {isDemoMode ? (
-                <div
-                  className="rounded-xl px-4 py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs min-w-0 w-full"
-                  style={{
-                    background: "rgba(245, 158, 11, 0.05)",
-                    border: "1px solid rgba(245, 158, 11, 0.18)",
-                  }}
-                >
-                  <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                    <div
-                      className="w-6 h-6 rounded-lg flex items-center justify-center shrink-0"
-                      style={{ background: "rgba(245, 158, 11, 0.12)", color: "#B45309" }}
-                    >
-                      <Sparkles className="w-3.5 h-3.5" />
-                    </div>
-                    <div className="min-w-0 flex-1 flex flex-wrap items-center gap-x-2 gap-y-0.5">
-                      <span className="font-semibold text-slate-800 text-xs">
-                        Demonstration Dataset
-                      </span>
-                      <span className="text-slate-300 hidden sm:inline">•</span>
-                      <span className="text-[12px] text-slate-500">
-                        Showing 10 sample Ahmedabad prospects. Voice calls with Alex are fully active.
-                      </span>
-                    </div>
-                  </div>
-
-                  <button
-                    onClick={() => setIsSettingsOpen(true)}
-                    className="ds-btn ds-btn-secondary shrink-0 text-xs font-semibold self-start sm:self-center h-8 px-3"
-                  >
-                    <FileSpreadsheet className="w-3.5 h-3.5" />
-                    Connect Live Sheet
-                  </button>
-                </div>
-              ) : (
+              {/* Section B: Live Data Connection Status (Only when live) */}
+              {!isDemoMode && (
                 <div
                   className="rounded-xl px-4 py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs min-w-0 w-full"
                   style={{
@@ -429,6 +442,7 @@ export default function DashboardPage() {
                     loading={isLoading}
                     compact={true}
                     onViewAll={() => setActiveTab("leads")}
+                    isDemo={isDemoMode}
                   />
                 </div>
 
@@ -488,6 +502,7 @@ export default function DashboardPage() {
                 onSelectLead={handleSelectLead}
                 onCallLead={handleCallLead}
                 loading={isLoading}
+                isDemo={isDemoMode}
               />
             </div>
           )}
@@ -507,6 +522,7 @@ export default function DashboardPage() {
               leads={leads}
               onSelectLead={handleSelectLead}
               onCallLead={handleCallLead}
+              isDemo={isDemoMode}
             />
           )}
 

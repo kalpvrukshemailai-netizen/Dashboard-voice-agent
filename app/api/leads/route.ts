@@ -54,15 +54,16 @@ export async function GET(req: Request) {
     const limit = searchParams.get("limit") ? Number(searchParams.get("limit")) : 100;
 
     const result = await hskSheetsClient.getEnquiries({ limit });
-    const enquiries = (result.enquiries as EnquiryRecord[]) || [];
 
-    if (enquiries.length > 0) {
+    if (result && result.success) {
+      const enquiries = (result.enquiries as EnquiryRecord[]) || [];
       const mappedLeads = enquiries.map((enq, idx) => mapHskEnquiryToLead(enq, idx));
       return NextResponse.json({
         success: true,
         isDemo: false,
         source: "google_sheet",
         leads: mappedLeads,
+        count: mappedLeads.length,
       });
     }
 
@@ -71,6 +72,7 @@ export async function GET(req: Request) {
       isDemo: true,
       source: "demo_fallback",
       leads: FALLBACK_DEMO_LEADS,
+      warning: result?.error || "Google Sheets returned unsuccessful response",
     });
   } catch (error) {
     const errMsg = error instanceof Error ? error.message : "Failed to load leads from Google Sheets";
@@ -90,15 +92,16 @@ export async function POST(req: Request) {
     const limit = body.limit ? Number(body.limit) : 100;
 
     const result = await hskSheetsClient.getEnquiries({ limit });
-    const enquiries = (result.enquiries as EnquiryRecord[]) || [];
 
-    if (enquiries.length > 0) {
+    if (result && result.success) {
+      const enquiries = (result.enquiries as EnquiryRecord[]) || [];
       const mappedLeads = enquiries.map((enq, idx) => mapHskEnquiryToLead(enq, idx));
       return NextResponse.json({
         success: true,
         isDemo: false,
         source: "google_sheet",
         leads: mappedLeads,
+        count: mappedLeads.length,
       });
     }
 
@@ -107,6 +110,7 @@ export async function POST(req: Request) {
       isDemo: true,
       source: "demo_fallback",
       leads: FALLBACK_DEMO_LEADS,
+      warning: result?.error || "Google Sheets returned unsuccessful response",
     });
   } catch (error) {
     const errMsg = error instanceof Error ? error.message : "Failed to load leads from Google Sheets";
