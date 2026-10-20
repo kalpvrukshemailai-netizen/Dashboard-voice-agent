@@ -2,10 +2,12 @@
   "name": "ai-calling-agent-mvp-zero-cost",
   "version": "0.3.0",
   "private": true,
+  "type": "module",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start"
+    "start": "next start",
+    "test": "node --test"
   },
   "dependencies": {
     "@tabler/icons-react": "^3.48.0",
