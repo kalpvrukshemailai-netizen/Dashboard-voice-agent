@@ -1,11 +1,12 @@
 /**
  * HSK Builder Group AI Calling Platform
- * Queue Worker & Scheduled Runner
+ * Protected Queue Worker & Scheduled Runner
  *
  * Endpoint: POST /api/scheduler/worker (and GET for health/trigger)
+ * - Protected by Bearer Token (CRON_SECRET / SCHEDULER_SECRET)
  * - Updates scheduler heartbeat
  * - Enforces calling window (9 AM - 10 PM IST)
- * - Reconciles stale dialer locks
+ * - Safe active-call recovery (no auto-unlock)
  * - Atomically claims next priority enquiry
  * - Initiates outbound call via ElevenLabs Exotel integration
  */
@@ -14,19 +15,22 @@ import { NextResponse } from "next/server";
 import { hskSheetsClient } from "@/lib/hsk-sheets-client";
 import { isCallingWindowOpen, generateOutcomeId } from "@/lib/hsk-sheets-schema";
 import { initiateExotelOutboundCall } from "@/lib/elevenlabs-exotel-dialer";
+import { verifyWorkerAuthorization } from "@/lib/auth-helpers";
 
 export async function POST(req: Request) {
   try {
-    // Optional cron security header
+    // 1. Enforce Server-Side Authorization
     const authHeader = req.headers.get("authorization");
-    const cronSecret = process.env.CRON_SECRET || process.env.SCHEDULER_SECRET;
-    if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
-      return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
+    if (!verifyWorkerAuthorization(authHeader)) {
+      return NextResponse.json(
+        { success: false, error: "Unauthorized: Missing or invalid worker authorization" },
+        { status: 401 },
+      );
     }
 
     const nowIso = new Date().toISOString();
 
-    // 1. Calling Hours Gate
+    // 2. Calling Hours Gate
     const isOpen = isCallingWindowOpen();
     if (!isOpen) {
       return NextResponse.json({
@@ -38,10 +42,10 @@ export async function POST(req: Request) {
       });
     }
 
-    // 2. Reconcile Stale Locks
+    // 3. Monitor Prolonged Locks (Strict Safety: Never auto-release active call!)
     await hskSheetsClient.reconcileStaleLocks();
 
-    // 3. Atomically Claim Next Priority Enquiry
+    // 4. Atomically Claim Next Priority Enquiry
     const claimRes = await hskSheetsClient.claimNextEnquiry();
     if (!claimRes.claimed) {
       return NextResponse.json({
@@ -55,7 +59,7 @@ export async function POST(req: Request) {
 
     const { enquiry, session_id } = claimRes;
 
-    // 4. Initiate Outbound Call via ElevenLabs Exotel Adapter
+    // 5. Initiate Outbound Call via ElevenLabs Exotel Adapter
     const dialRes = await initiateExotelOutboundCall({
       enquiry_id: enquiry.enquiry_id,
       phone_number: enquiry.phone_number,
@@ -75,9 +79,8 @@ export async function POST(req: Request) {
       });
     }
 
-    // 5. Handle Failures
+    // 6. Ambiguous Outbound Timeout: Quarantine without redialing
     if (dialRes.quarantined_for_reconciliation) {
-      // Ambiguous timeout: quarantine without redialing
       return NextResponse.json({
         success: false,
         action: "QUARANTINED_TIMEOUT",
@@ -86,7 +89,7 @@ export async function POST(req: Request) {
       });
     }
 
-    // Technical failure: record outcome and schedule bounded retry
+    // 7. Technical failure: record outcome with configurable retry policy
     const outcomeId = generateOutcomeId(enquiry.enquiry_id, enquiry.attempt_sequence || 1);
     await hskSheetsClient.recordOutcome({
       outcome_id: outcomeId,

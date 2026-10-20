@@ -1,6 +1,6 @@
 /**
  * HSK Builder Group AI Calling Platform
- * Google Apps Script Backend (Version 1)
+ * Google Apps Script Backend (Version 1 - Production Hardened)
  *
  * System of Record: Google Spreadsheet with 4 Tabs:
  * 1. Enquiries
@@ -49,6 +49,24 @@ var CALLING_HOURS = {
   END_HOUR_IST: 22     // 10:00 PM IST (inclusive of 21:59)
 };
 
+// -------------------------------------------------------------
+// Authentication & Security (Server-to-Server Shared Secret)
+// -------------------------------------------------------------
+
+function getSharedSecret() {
+  return PropertiesService.getScriptProperties().getProperty("HSK_SHARED_SECRET") || "";
+}
+
+function verifyAuthorization(payload, parameter) {
+  var configuredSecret = getSharedSecret();
+  // If no secret configured in ScriptProperties, log warning in non-prod
+  if (!configuredSecret) {
+    return true; // allows initial bootstrap before ScriptProperties are populated
+  }
+  var provided = (payload && (payload.shared_secret || payload.secret)) || (parameter && (parameter.shared_secret || parameter.secret));
+  return provided === configuredSecret;
+}
+
 /**
  * HTTP Entrypoint: POST
  */
@@ -67,6 +85,11 @@ function doPost(e) {
       } catch (err) {
         return jsonResponse({ success: false, error: "Invalid JSON payload" }, 400);
       }
+    }
+
+    // 1. Authenticate Request
+    if (!verifyAuthorization(payload, null)) {
+      return jsonResponse({ success: false, error: "Unauthorized: Invalid or missing shared secret" }, 401);
     }
 
     var action = payload.action || "health";
@@ -102,7 +125,7 @@ function doPost(e) {
         result = handleGetSystemState(ss);
         break;
       case "reconcileStaleLocks":
-        result = handleReconcileStaleLocks(ss);
+        result = handleReconcileStaleLocks(ss, payload);
         break;
       default:
         result = { success: false, error: "Unknown action: " + action };
@@ -126,6 +149,11 @@ function doPost(e) {
  */
 function doGet(e) {
   try {
+    // Authenticate GET requests if parameter contains commands or queries
+    if (!verifyAuthorization(null, e && e.parameter)) {
+      return jsonResponse({ success: false, error: "Unauthorized: Invalid or missing shared secret" }, 401);
+    }
+
     var ss = getSpreadsheet(e && e.parameter ? e.parameter.spreadsheetId : null);
     var systemState = handleGetSystemState(ss);
     var isWindowOpen = isCallingWindowOpen();
@@ -133,7 +161,7 @@ function doGet(e) {
     return jsonResponse({
       success: true,
       service: "HSK Builder Group AI Calling Backend",
-      version: "1.0.0",
+      version: "1.1.0",
       calling_window_open: isWindowOpen,
       system_state: systemState.data,
       timestamp: new Date().toISOString()
@@ -148,8 +176,8 @@ function doGet(e) {
 // -------------------------------------------------------------
 
 function getSpreadsheet(spreadsheetId) {
-  if (spreadsheetId && spreadsheetId.trim().length > 0) {
-    return SpreadsheetApp.openById(spreadsheetId.trim());
+  if (spreadsheetId && String(spreadsheetId).trim().length > 0) {
+    return SpreadsheetApp.openById(String(spreadsheetId).trim());
   }
   return SpreadsheetApp.getActiveSpreadsheet();
 }
@@ -343,27 +371,31 @@ function handleClaimNextEnquiry(ss, payload) {
   var stateSheet = ss.getSheetByName(TABS.SYSTEM_STATE);
   var dialerLock = getSystemStateValue(stateSheet, "DIALER_LOCK");
   if (dialerLock && dialerLock.locked) {
-    // Check if stale (> 15 minutes = 900000ms)
-    var lockedTime = new Date(dialerLock.locked_at).getTime();
+    // Production Safety Rule: NEVER release an active dialer lock solely due to age!
+    var lockedTime = dialerLock.locked_at ? new Date(dialerLock.locked_at).getTime() : 0;
     var nowTime = new Date().getTime();
-    if (nowTime - lockedTime < 15 * 60 * 1000) {
-      return {
-        success: true,
-        claimed: false,
-        reason: "DIALER_BUSY",
-        active_session: dialerLock.session_id,
-        locked_at: dialerLock.locked_at
-      };
-    } else {
-      // Reconcile stale lock
-      setSystemStateValue(stateSheet, "DIALER_LOCK", {
-        locked: false,
-        session_id: null,
-        enquiry_id: null,
-        locked_at: null,
-        recovered_from_stale: true
-      }, "AUTO_RECONCILE");
+    var elapsedMs = nowTime - lockedTime;
+    var isProlonged = elapsedMs >= 15 * 60 * 1000;
+
+    if (isProlonged) {
+      setSystemStateValue(stateSheet, "OPERATIONAL_ALERT", {
+        alert: "DIALER_LOCK_PROLONGED",
+        session_id: dialerLock.session_id,
+        enquiry_id: dialerLock.enquiry_id,
+        locked_at: dialerLock.locked_at,
+        elapsed_minutes: Math.round(elapsedMs / 60000),
+        message: "Active call lock held over 15 minutes. Requires verified provider status or authorized operator reconciliation."
+      }, "MONITOR");
     }
+
+    return {
+      success: true,
+      claimed: false,
+      reason: "DIALER_BUSY",
+      active_session: dialerLock.session_id,
+      locked_at: dialerLock.locked_at,
+      requires_operator_reconciliation: isProlonged
+    };
   }
 
   // 3. Scan Enquiries and find eligible candidates
@@ -394,10 +426,10 @@ function handleClaimNextEnquiry(ss, payload) {
     var createdAt = row[colMap["created_at"]];
 
     // Exclude terminal / suppressed states
-    if (status === "DO_NOT_CALL" || status === "QUALIFIED" || status === "DISQUALIFIED" || status === "NOT_ANSWERED" || status === "CALLING") {
+    if (status === "DO_NOT_CALL" || status === "QUALIFIED" || status === "DISQUALIFIED" || status === "NOT_ANSWERED" || status === "CALLING" || status === "FAILED_TECHNICAL") {
       continue;
     }
-    if (noAnswerCount >= 3 || techFailCount >= 2) {
+    if (noAnswerCount >= 3) {
       continue;
     }
 
@@ -563,11 +595,11 @@ function handleRecordOutcome(ss, payload) {
     qualStatus = "DND";
     newQueueClass = "NONE";
   } else if (disposition === "BUSY" || disposition === "NO_ANSWER") {
+    // Customer no-answer policy: 2 min retry, max 3 attempts
     currentNoAnswer += 1;
     if (currentNoAnswer < 3) {
       newStatus = "RETRY_SCHEDULED";
       newQueueClass = "RETRY";
-      // Retry in 2 minutes
       var retryTime = new Date(now.getTime() + 2 * 60 * 1000);
       nextRetryIso = retryTime.toISOString();
     } else {
@@ -576,16 +608,27 @@ function handleRecordOutcome(ss, payload) {
       qualStatus = "UNREACHED";
     }
   } else if (disposition === "FAILED_TECH") {
+    // Technical failure policy: isolated counter; automatic retry disabled by default until explicitly configured
     currentTechFail += 1;
-    if (currentTechFail < 2) {
+    var autoTechRetryEnabled = outcome.auto_technical_retries_enabled === true;
+    var maxTechRetries = Number(outcome.max_technical_retries || 0);
+
+    if (autoTechRetryEnabled && currentTechFail < maxTechRetries) {
       newStatus = "RETRY_SCHEDULED";
       newQueueClass = "RETRY";
-      // Exponential backoff for tech fail: 1 min, then 5 min
       var backoffMins = currentTechFail === 1 ? 1 : 5;
       nextRetryIso = new Date(now.getTime() + backoffMins * 60 * 1000).toISOString();
     } else {
       newStatus = "FAILED_TECHNICAL";
       newQueueClass = "NONE";
+      // Log operational alert for operator visibility
+      setSystemStateValue(stateSheet, "OPERATIONAL_ALERT", {
+        alert: "TECHNICAL_FAILURE_RECORDED",
+        enquiry_id: outcome.enquiry_id,
+        technical_failures_count: currentTechFail,
+        error_details: outcome.error_details || "Carrier gateway error",
+        timestamp: nowIso
+      }, "RECORD_OUTCOME");
     }
   } else if (disposition === "ANSWERED") {
     newStatus = outcome.interested ? "QUALIFIED" : "DISQUALIFIED";
@@ -712,15 +755,11 @@ function handleAcquireDialerLock(ss, payload) {
   var current = getSystemStateValue(stateSheet, "DIALER_LOCK");
 
   if (current && current.locked) {
-    var lockedTime = new Date(current.locked_at).getTime();
-    var nowTime = new Date().getTime();
-    if (nowTime - lockedTime < 15 * 60 * 1000) {
-      return {
-        success: false,
-        error: "Dialer already locked by session " + current.session_id,
-        current_lock: current
-      };
-    }
+    return {
+      success: false,
+      error: "Dialer already locked by session " + current.session_id,
+      current_lock: current
+    };
   }
 
   var nowIso = new Date().toISOString();
@@ -739,10 +778,11 @@ function handleReleaseDialerLock(ss, payload) {
   var stateSheet = ss.getSheetByName(TABS.SYSTEM_STATE);
   var current = getSystemStateValue(stateSheet, "DIALER_LOCK");
 
-  if (current && current.locked && payload.session_id && current.session_id !== payload.session_id) {
+  // Only allow release if session_id matches OR if force flag is explicitly provided by authorized operator
+  if (current && current.locked && payload.session_id && current.session_id !== payload.session_id && !payload.force) {
     return {
       success: false,
-      error: "Cannot release lock owned by different session: " + current.session_id
+      error: "Cannot release lock owned by different session (" + current.session_id + ") without force reconciliation."
     };
   }
 
@@ -750,7 +790,8 @@ function handleReleaseDialerLock(ss, payload) {
     locked: false,
     session_id: null,
     enquiry_id: null,
-    locked_at: null
+    locked_at: null,
+    released_by: payload.authorized_by || payload.updated_by || "OPERATOR"
   };
 
   setSystemStateValue(stateSheet, "DIALER_LOCK", releasedLock, payload.updated_by || "MANUAL_RELEASE");
@@ -780,29 +821,53 @@ function handleGetSystemState(ss) {
   return { success: true, data: state };
 }
 
-function handleReconcileStaleLocks(ss) {
+function handleReconcileStaleLocks(ss, payload) {
   var stateSheet = ss.getSheetByName(TABS.SYSTEM_STATE);
   var current = getSystemStateValue(stateSheet, "DIALER_LOCK");
   if (!current || !current.locked) {
     return { success: true, message: "Dialer is not locked", reconciled: false };
   }
 
-  var lockedTime = new Date(current.locked_at).getTime();
+  var lockedTime = current.locked_at ? new Date(current.locked_at).getTime() : 0;
   var nowTime = new Date().getTime();
   var elapsedMs = nowTime - lockedTime;
+  var isProlonged = elapsedMs >= 15 * 60 * 1000;
 
-  if (elapsedMs >= 15 * 60 * 1000) {
+  // Strict Safety Rule: Do NOT automatically release active lock!
+  // If force flag is provided with operator authorization, allow manual release:
+  if (payload && payload.force === true && payload.authorized_by) {
     setSystemStateValue(stateSheet, "DIALER_LOCK", {
       locked: false,
       session_id: null,
       enquiry_id: null,
       locked_at: null,
-      reconciled_stale_lock: current.session_id
-    }, "STALE_RECONCILER");
+      manually_reconciled: true,
+      authorized_by: payload.authorized_by,
+      reason: payload.reason || "Operator verified provider status is terminal"
+    }, "OPERATOR_RECONCILE");
 
-    setSystemStateValue(stateSheet, "ACTIVE_SESSION", { active: false, session_id: null }, "STALE_RECONCILER");
+    setSystemStateValue(stateSheet, "ACTIVE_SESSION", { active: false, session_id: null }, "OPERATOR_RECONCILE");
+    return { success: true, reconciled: true, message: "Dialer lock manually reconciled by operator." };
+  }
 
-    return { success: true, reconciled: true, message: "Reconciled stale lock for session " + current.session_id };
+  // Without explicit authorized operator force, quarantine and alert
+  if (isProlonged) {
+    setSystemStateValue(stateSheet, "OPERATIONAL_ALERT", {
+      alert: "STALE_LOCK_ATTENTION_REQUIRED",
+      session_id: current.session_id,
+      enquiry_id: current.enquiry_id,
+      locked_at: current.locked_at,
+      elapsed_minutes: Math.round(elapsedMs / 60000),
+      message: "Dialer lock held for >15 min. Automatic release disallowed. Operator verification required."
+    }, "STALE_MONITOR");
+
+    return {
+      success: true,
+      reconciled: false,
+      requires_manual_reconciliation: true,
+      message: "Lock is prolonged (>15m) but automatic release is prohibited to prevent duplicate concurrent calls. Operator reconciliation required.",
+      current_lock: current
+    };
   }
 
   return { success: true, reconciled: false, elapsed_seconds: Math.floor(elapsedMs / 1000) };
@@ -852,7 +917,11 @@ function setSystemStateValue(sheet, key, value, updatedBy) {
 // -------------------------------------------------------------
 
 /**
- * Configure this function as a 1-minute or 2-minute Time-Driven Trigger in Google Apps Script.
+ * Configure as a Time-Driven Trigger in Google Apps Script.
+ * Supported intervals: everyMinutes(1), everyMinutes(5), everyMinutes(10), everyMinutes(15), everyMinutes(30).
+ * Note: Google Apps Script does NOT support 2-minute trigger intervals.
+ *
+ * This function triggers the Next.js Worker API route to process the queue.
  */
 function onScheduledTrigger() {
   var lock = LockService.getScriptLock();
@@ -860,23 +929,36 @@ function onScheduledTrigger() {
 
   try {
     var ss = SpreadsheetApp.getActiveSpreadsheet();
-    if (!ss) return;
-
-    // Update heartbeat
-    var stateSheet = ss.getSheetByName(TABS.SYSTEM_STATE);
-    setSystemStateValue(stateSheet, "SCHEDULER_HEARTBEAT", new Date().toISOString(), "TRIGGER");
+    if (ss) {
+      var stateSheet = ss.getSheetByName(TABS.SYSTEM_STATE);
+      setSystemStateValue(stateSheet, "SCHEDULER_HEARTBEAT", new Date().toISOString(), "TRIGGER");
+    }
 
     // Check calling hours
     if (!isCallingWindowOpen()) return;
 
-    // Reconcile stale locks
-    handleReconcileStaleLocks(ss);
+    // Invoke Next.js Queue Worker over HTTP if configured
+    var props = PropertiesService.getScriptProperties();
+    var workerUrl = props.getProperty("NEXTJS_WORKER_URL");
+    var cronSecret = props.getProperty("CRON_SECRET");
 
-    // Try claiming next enquiry
-    var claimResult = handleClaimNextEnquiry(ss, {});
-    if (claimResult.claimed) {
-      Logger.log("Trigger claimed enquiry: " + JSON.stringify(claimResult));
-      // NOTE: Here the Apps Script can optionally invoke the Next.js outbound API or ElevenLabs webhook
+    if (workerUrl && workerUrl.trim().length > 0) {
+      var headers = { "Content-Type": "application/json" };
+      if (cronSecret && cronSecret.trim().length > 0) {
+        headers["Authorization"] = "Bearer " + cronSecret.trim();
+      }
+
+      try {
+        var response = UrlFetchApp.fetch(workerUrl.trim(), {
+          method: "POST",
+          headers: headers,
+          payload: JSON.stringify({ source: "apps_script_trigger" }),
+          muteHttpExceptions: true
+        });
+        Logger.log("Trigger invoked Next.js worker. HTTP " + response.getResponseCode());
+      } catch (fetchErr) {
+        Logger.log("Error invoking Next.js worker from trigger: " + fetchErr.message);
+      }
     }
   } catch (e) {
     Logger.log("Error in onScheduledTrigger: " + e.message);

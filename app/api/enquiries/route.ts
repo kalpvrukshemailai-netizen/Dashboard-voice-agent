@@ -1,10 +1,10 @@
 /**
  * HSK Builder Group AI Calling Platform
- * Website Enquiry Intake API Route
+ * Website Enquiry Intake API Route (Hardened)
  *
  * Endpoint: POST /api/enquiries
- * Handles server-side validation, phone normalization, duplicate suppression,
- * calling window check, and persistence to the Enquiries Google Sheet tab.
+ * Handles server-side validation, E.164 phone normalization, duplicate suppression,
+ * calling window check, persistence to Enquiries Google Sheet tab, and intake fast path.
  */
 
 import { NextResponse } from "next/server";
@@ -17,7 +17,13 @@ import {
 
 export async function POST(req: Request) {
   try {
-    const body = await req.json().catch(() => ({}));
+    const body = await req.json().catch(() => null);
+    if (!body || typeof body !== "object") {
+      return NextResponse.json(
+        { success: false, error: "Invalid JSON request body" },
+        { status: 400 },
+      );
+    }
 
     const rawName = String(body.customer_name ?? body.name ?? "").trim();
     const rawPhone = String(body.phone_number ?? body.phone ?? "").trim();
@@ -26,10 +32,10 @@ export async function POST(req: Request) {
     const source = String(body.source ?? "Website").trim();
     const utmCampaign = String(body.utm_campaign ?? body.campaign ?? "").trim();
 
-    // 1. Validation
-    if (!rawName) {
+    // 1. Rigorous Validation
+    if (!rawName || rawName.length < 2) {
       return NextResponse.json(
-        { success: false, error: "Customer name is required" },
+        { success: false, error: "Customer name is required (minimum 2 characters)" },
         { status: 400 },
       );
     }
@@ -42,7 +48,7 @@ export async function POST(req: Request) {
     }
 
     const cleanPhone = normalizePhoneNumber(rawPhone);
-    // E.164 phone validation (e.g. +91 followed by 10 digits)
+    // E.164 phone validation (e.g. +91 followed by 10 digits for India)
     if (!/^\+\d{10,15}$/.test(cleanPhone)) {
       return NextResponse.json(
         {
@@ -53,11 +59,11 @@ export async function POST(req: Request) {
       );
     }
 
-    // 2. Calling Window Check
+    // 2. Calling Hours Gate Check (9:00 AM - 10:00 PM IST)
     const inCallingWindow = isCallingWindowOpen();
     const nextWindowOpening = !inCallingWindow ? getNextWindowOpeningTime().toISOString() : null;
 
-    // 3. Persist to Google Sheet
+    // 3. Persist to Google Sheet (or Test Double)
     const result = await hskSheetsClient.createEnquiry({
       customer_name: rawName,
       phone_number: cleanPhone,
@@ -74,6 +80,15 @@ export async function POST(req: Request) {
       );
     }
 
+    // 4. Fast-Path Opportunity Evaluation
+    // If inside calling window and not a duplicate, check if dialer is available for immediate intake
+    let fastPathEligible = false;
+    if (inCallingWindow && !result.is_duplicate) {
+      const stateRes = await hskSheetsClient.getSystemState();
+      const isLocked = stateRes?.data?.DIALER_LOCK?.locked === true;
+      fastPathEligible = !isLocked;
+    }
+
     return NextResponse.json({
       success: true,
       enquiry_id: result.enquiry_id,
@@ -82,6 +97,7 @@ export async function POST(req: Request) {
       current_status: result.current_status,
       in_calling_window: inCallingWindow,
       next_calling_window_opens_at: nextWindowOpening,
+      fast_path_eligible: fastPathEligible,
       message: result.is_duplicate
         ? "Existing pending enquiry recognized"
         : inCallingWindow

@@ -295,14 +295,15 @@ describe("Phase 1: Google Sheets Foundation, Locking & Queue Coordinator", () =>
     // Claim
     await client.claimNextEnquiry();
 
-    // Record FAILED_TECH
+    // Record FAILED_TECH with default settings (auto retries disabled by default)
     const out1 = await client.recordOutcome({
       outcome_id: "OUT-TECH-1",
       enquiry_id: enquiryId,
       call_disposition: "FAILED_TECH",
       error_details: "Carrier Gateway 502",
+      auto_technical_retries_enabled: false,
     });
-    assert.equal(out1.new_status, "RETRY_SCHEDULED");
+    assert.equal(out1.new_status, "FAILED_TECHNICAL");
 
     const record = (await client.getEnquiries()).enquiries.find(e => e.enquiry_id === enquiryId);
     // Crucial rule: tech failures NEVER increment customer no answer

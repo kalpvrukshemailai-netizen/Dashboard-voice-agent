@@ -1,8 +1,9 @@
 /**
- * In-Memory Test Double for HSK Google Sheets + Apps Script Backend
+ * In-Memory Test Double for HSK Google Sheets + Apps Script Backend (Hardened)
  *
- * Implements the exact 4-tab data store, LockService simulation,
- * priority queue logic, immutable field preservation, and idempotent operations.
+ * Implements the exact 4-tab data store, shared-secret authentication,
+ * safe active-call recovery (no auto-unlock), priority queue logic,
+ * immutable field preservation, and configurable retry policies.
  */
 
 import {
@@ -27,8 +28,8 @@ export class HskSheetsTestDouble {
   private outcomes: Map<string, CallOutcomeRecord> = new Map();
   private webhookEvents: Map<string, WebhookEventRecord> = new Map();
   private systemState: Map<string, SystemStateRecord> = new Map();
-  private isLocked: boolean = false;
-  private forceCallingWindow: boolean | null = null; // null = use real time
+  private forceCallingWindow: boolean | null = null;
+  private configuredSharedSecret: string | null = null;
 
   constructor() {
     this.reset();
@@ -39,9 +40,13 @@ export class HskSheetsTestDouble {
     this.outcomes.clear();
     this.webhookEvents.clear();
     this.systemState.clear();
-    this.isLocked = false;
     this.forceCallingWindow = null;
+    this.configuredSharedSecret = null;
     this.initializeDefaultSystemState();
+  }
+
+  public setConfiguredSharedSecret(secret: string | null): void {
+    this.configuredSharedSecret = secret;
   }
 
   public setMockCallingWindow(isOpen: boolean | null): void {
@@ -53,6 +58,11 @@ export class HskSheetsTestDouble {
       return this.forceCallingWindow;
     }
     return isCallingWindowOpen();
+  }
+
+  public verifyAuth(providedSecret?: string): boolean {
+    if (!this.configuredSharedSecret) return true;
+    return providedSecret === this.configuredSharedSecret;
   }
 
   private initializeDefaultSystemState(): void {
@@ -87,15 +97,20 @@ export class HskSheetsTestDouble {
     });
   }
 
-  public initializeTabs(): { success: boolean; created: string[]; existing: string[] } {
+  public initializeTabs(payload?: { shared_secret?: string }): { success: boolean; created?: string[]; error?: string } {
+    if (!this.verifyAuth(payload?.shared_secret)) {
+      return { success: false, error: "Unauthorized: Invalid or missing shared secret" };
+    }
     return {
       success: true,
       created: Object.values(HSK_TABS),
-      existing: [],
     };
   }
 
-  public getEnquiries(options?: { status?: string; queue_class?: string; limit?: number }) {
+  public getEnquiries(options?: { status?: string; queue_class?: string; limit?: number; shared_secret?: string }) {
+    if (!this.verifyAuth(options?.shared_secret)) {
+      return { success: false, error: "Unauthorized: Invalid or missing shared secret" };
+    }
     let list = Array.from(this.enquiries.values());
     if (options?.status) {
       list = list.filter((e) => e.current_status === options.status);
@@ -111,7 +126,10 @@ export class HskSheetsTestDouble {
     };
   }
 
-  public createEnquiry(payload: Partial<EnquiryRecord> & { customer_name: string; phone_number: string }) {
+  public createEnquiry(payload: Partial<EnquiryRecord> & { customer_name: string; phone_number: string; shared_secret?: string }) {
+    if (!this.verifyAuth(payload?.shared_secret)) {
+      return { success: false, error: "Unauthorized: Invalid or missing shared secret" };
+    }
     if (!payload.customer_name || !payload.phone_number) {
       return { success: false, error: "customer_name and phone_number are required" };
     }
@@ -173,7 +191,11 @@ export class HskSheetsTestDouble {
     };
   }
 
-  public claimNextEnquiry(): Record<string, unknown> {
+  public claimNextEnquiry(payload?: { shared_secret?: string }): Record<string, unknown> {
+    if (!this.verifyAuth(payload?.shared_secret)) {
+      return { success: false, error: "Unauthorized: Invalid or missing shared secret" };
+    }
+
     if (!this.checkWindowOpen()) {
       return {
         success: true,
@@ -183,30 +205,33 @@ export class HskSheetsTestDouble {
       };
     }
 
-    // Check Dialer Lock
+    // Check Dialer Lock - Strict Safety Rule: Never auto-release active lock solely due to age!
     const dialerLockState = this.systemState.get("DIALER_LOCK");
     if (dialerLockState) {
       const lockObj = JSON.parse(dialerLockState.state_value);
       if (lockObj.locked) {
-        const lockedTime = new Date(lockObj.locked_at).getTime();
+        const lockedTime = lockObj.locked_at ? new Date(lockObj.locked_at).getTime() : 0;
         const nowTime = Date.now();
-        if (nowTime - lockedTime < 15 * 60 * 1000) {
-          return {
-            success: true,
-            claimed: false,
-            reason: "DIALER_BUSY",
-            active_session: lockObj.session_id,
+        const isProlonged = nowTime - lockedTime >= 15 * 60 * 1000;
+
+        if (isProlonged) {
+          this.setSystemStateValue("OPERATIONAL_ALERT", {
+            alert: "DIALER_LOCK_PROLONGED",
+            session_id: lockObj.session_id,
+            enquiry_id: lockObj.enquiry_id,
             locked_at: lockObj.locked_at,
-          };
-        } else {
-          // Reconcile stale lock
-          this.setSystemStateValue("DIALER_LOCK", {
-            locked: false,
-            session_id: null,
-            enquiry_id: null,
-            locked_at: null,
+            message: "Active call lock held over 15 minutes. Automatic release prohibited.",
           });
         }
+
+        return {
+          success: true,
+          claimed: false,
+          reason: "DIALER_BUSY",
+          active_session: lockObj.session_id,
+          locked_at: lockObj.locked_at,
+          requires_operator_reconciliation: isProlonged,
+        };
       }
     }
 
@@ -217,13 +242,13 @@ export class HskSheetsTestDouble {
 
     for (const record of this.enquiries.values()) {
       if (
-        ["DO_NOT_CALL", "QUALIFIED", "DISQUALIFIED", "NOT_ANSWERED", "CALLING"].includes(
+        ["DO_NOT_CALL", "QUALIFIED", "DISQUALIFIED", "NOT_ANSWERED", "CALLING", "FAILED_TECHNICAL"].includes(
           record.current_status,
         )
       ) {
         continue;
       }
-      if (record.customer_no_answer_count >= 3 || record.technical_failures_count >= 2) {
+      if (record.customer_no_answer_count >= 3) {
         continue;
       }
 
@@ -306,7 +331,19 @@ export class HskSheetsTestDouble {
     };
   }
 
-  public recordOutcome(outcome: Partial<CallOutcomeRecord> & { enquiry_id: string; outcome_id: string }) {
+  public recordOutcome(
+    outcome: Partial<CallOutcomeRecord> & {
+      enquiry_id: string;
+      outcome_id: string;
+      auto_technical_retries_enabled?: boolean;
+      max_technical_retries?: number;
+      shared_secret?: string;
+    },
+  ) {
+    if (!this.verifyAuth(outcome.shared_secret)) {
+      return { success: false, error: "Unauthorized: Invalid or missing shared secret" };
+    }
+
     if (!outcome.enquiry_id || !outcome.outcome_id) {
       return { success: false, error: "enquiry_id and outcome_id are required" };
     }
@@ -354,7 +391,10 @@ export class HskSheetsTestDouble {
       }
     } else if (disposition === "FAILED_TECH") {
       enquiry.technical_failures_count += 1;
-      if (enquiry.technical_failures_count < 2) {
+      const autoTechEnabled = outcome.auto_technical_retries_enabled === true;
+      const maxTech = outcome.max_technical_retries || 0;
+
+      if (autoTechEnabled && enquiry.technical_failures_count < maxTech) {
         newStatus = "RETRY_SCHEDULED";
         newQueueClass = "RETRY";
         const backoffMins = enquiry.technical_failures_count === 1 ? 1 : 5;
@@ -422,7 +462,11 @@ export class HskSheetsTestDouble {
     };
   }
 
-  public recordWebhookEvent(payload: Partial<WebhookEventRecord> & { event_id: string; provider: "ELEVENLABS" | "EXOTEL" }) {
+  public recordWebhookEvent(payload: Partial<WebhookEventRecord> & { event_id: string; provider: "ELEVENLABS" | "EXOTEL"; shared_secret?: string }) {
+    if (!this.verifyAuth(payload?.shared_secret)) {
+      return { success: false, error: "Unauthorized: Invalid or missing shared secret" };
+    }
+
     if (!payload.event_id || !payload.provider) {
       return { success: false, error: "event_id and provider are required" };
     }
@@ -460,18 +504,18 @@ export class HskSheetsTestDouble {
     };
   }
 
-  public acquireDialerLock(sessionId?: string, enquiryId?: string) {
+  public acquireDialerLock(sessionId?: string, enquiryId?: string, sharedSecret?: string) {
+    if (!this.verifyAuth(sharedSecret)) {
+      return { success: false, error: "Unauthorized: Invalid or missing shared secret" };
+    }
+
     const current = this.getSystemStateValue("DIALER_LOCK");
     if (current?.locked) {
-      const lockedTime = new Date(current.locked_at).getTime();
-      const nowTime = Date.now();
-      if (nowTime - lockedTime < 15 * 60 * 1000) {
-        return {
-          success: false,
-          error: `Dialer already locked by session ${current.session_id}`,
-          current_lock: current,
-        };
-      }
+      return {
+        success: false,
+        error: `Dialer already locked by session ${current.session_id}`,
+        current_lock: current,
+      };
     }
 
     const nowIso = new Date().toISOString();
@@ -486,12 +530,16 @@ export class HskSheetsTestDouble {
     return { success: true, lock: newLock };
   }
 
-  public releaseDialerLock(sessionId?: string) {
+  public releaseDialerLock(sessionId?: string, force?: boolean, authorizedBy?: string, sharedSecret?: string) {
+    if (!this.verifyAuth(sharedSecret)) {
+      return { success: false, error: "Unauthorized: Invalid or missing shared secret" };
+    }
+
     const current = this.getSystemStateValue("DIALER_LOCK");
-    if (current?.locked && sessionId && current.session_id !== sessionId) {
+    if (current?.locked && sessionId && current.session_id !== sessionId && !force) {
       return {
         success: false,
-        error: `Cannot release lock owned by different session: ${current.session_id}`,
+        error: `Cannot release lock owned by different session (${current.session_id}) without force reconciliation.`,
       };
     }
 
@@ -500,38 +548,65 @@ export class HskSheetsTestDouble {
       session_id: null,
       enquiry_id: null,
       locked_at: null,
+      released_by: authorizedBy || "OPERATOR",
     });
     this.setSystemStateValue("ACTIVE_SESSION", { active: false, session_id: null });
 
     return { success: true, message: "Lock released successfully" };
   }
 
-  public reconcileStaleLocks() {
+  public reconcileStaleLocks(options?: { force?: boolean; authorized_by?: string; shared_secret?: string }) {
+    if (!this.verifyAuth(options?.shared_secret)) {
+      return { success: false, error: "Unauthorized: Invalid or missing shared secret" };
+    }
+
     const current = this.getSystemStateValue("DIALER_LOCK");
     if (!current?.locked) {
       return { success: true, message: "Dialer is not locked", reconciled: false };
     }
 
-    const lockedTime = new Date(current.locked_at).getTime();
+    const lockedTime = current.locked_at ? new Date(current.locked_at).getTime() : 0;
     const nowTime = Date.now();
     const elapsedMs = nowTime - lockedTime;
 
-    if (elapsedMs >= 15 * 60 * 1000) {
+    // Strict safety: Only release if operator explicitly forced
+    if (options?.force === true && options?.authorized_by) {
       this.setSystemStateValue("DIALER_LOCK", {
         locked: false,
         session_id: null,
         enquiry_id: null,
         locked_at: null,
-        reconciled_stale_lock: current.session_id,
+        manually_reconciled: true,
+        authorized_by: options.authorized_by,
       });
       this.setSystemStateValue("ACTIVE_SESSION", { active: false, session_id: null });
-      return { success: true, reconciled: true, message: `Reconciled stale lock for session ${current.session_id}` };
+      return { success: true, reconciled: true, message: "Dialer lock manually reconciled by operator." };
+    }
+
+    if (elapsedMs >= 15 * 60 * 1000) {
+      this.setSystemStateValue("OPERATIONAL_ALERT", {
+        alert: "STALE_LOCK_ATTENTION_REQUIRED",
+        session_id: current.session_id,
+        enquiry_id: current.enquiry_id,
+        locked_at: current.locked_at,
+        elapsed_minutes: Math.round(elapsedMs / 60000),
+      });
+
+      return {
+        success: true,
+        reconciled: false,
+        requires_manual_reconciliation: true,
+        message: "Lock is prolonged (>15m) but automatic release is prohibited. Operator reconciliation required.",
+      };
     }
 
     return { success: true, reconciled: false, elapsed_seconds: Math.floor(elapsedMs / 1000) };
   }
 
-  public getSystemState() {
+  public getSystemState(sharedSecret?: string) {
+    if (!this.verifyAuth(sharedSecret)) {
+      return { success: false, error: "Unauthorized: Invalid or missing shared secret" };
+    }
     const data: Record<string, unknown> = {};
     for (const [k, v] of this.systemState.entries()) {
       try {
