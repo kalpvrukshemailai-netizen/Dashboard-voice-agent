@@ -140,7 +140,7 @@ export class HskSheetsTestDouble {
     for (const existing of this.enquiries.values()) {
       if (
         existing.phone_number === cleanPhone &&
-        ["NEW", "QUEUED", "CALLING", "RETRY_SCHEDULED"].includes(existing.current_status)
+        ["NEW", "QUEUED", "CALLING", "PENDING_CALL", "RETRY_SCHEDULED"].includes(existing.current_status)
       ) {
         return {
           success: true,

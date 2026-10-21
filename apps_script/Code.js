@@ -27,7 +27,7 @@ var CONFIG = {
   DEFAULT_SPREADSHEET_ID: "1a4sfmK6faPs9QR3-_0fQzksn49epumoTbzwas2tnfv8",
   TIMEZONE: "Asia/Kolkata", // Indian Standard Time (UTC+05:30)
   LOCK_TIMEOUT_MS: 10000,
-  ALLOW_PUBLIC_ENQUIRIES: true // Permits public website inquiries without client-side secret exposure
+  ALLOW_PUBLIC_ENQUIRIES: false // Strict architecture: website enquiries use authenticated backend
 };
 
 // Canonical Sheet Header Schemas (Supports both 18-col and 21-col variants dynamically)
@@ -105,33 +105,44 @@ function getSharedSecret() {
 
 /**
  * Verifies authorization for protected actions.
- * Public enquiry submissions from the website frontend are permitted without exposing secrets.
+ * Protected actions FAIL CLOSED if the shared secret is not configured or does not match.
+ * Only basic health status checks ('health', 'ping') are accessible publicly without auth.
  */
 function verifyAuthorization(payload, parameter, action, e) {
-  // Public actions do not require server secret if public submissions are permitted
-  var isPublicAction = (action === "createEnquiry" || action === "create_enquiry" || action === "submit_enquiry" || action === "new_enquiry" || action === "health" || action === "ping");
-  if (isPublicAction && CONFIG.ALLOW_PUBLIC_ENQUIRIES) {
+  var normalized = normalizeActionName(action);
+
+  // 1. Only lightweight status probes are public
+  if (normalized === "health" || normalized === "ping") {
     return true;
   }
 
+  // 2. Retrieve configured server shared secret
   var configuredSecret = getSharedSecret();
-  // If no secret configured in ScriptProperties, allow initial setup
-  if (!configuredSecret) {
-    return true;
+
+  // AUDIT REQUIREMENT: Fail closed if shared secret is missing from ScriptProperties
+  if (!configuredSecret || String(configuredSecret).trim().length === 0) {
+    Logger.log("Authorization rejected: HSK_SHARED_SECRET is not configured in ScriptProperties (failing closed).");
+    return false;
   }
 
+  // 3. Extract provided token from payload, parameter, or headers
   var provided = (payload && (payload.shared_secret || payload.secret || payload.auth_token)) ||
                  (parameter && (parameter.shared_secret || parameter.secret || parameter.auth_token));
 
-  // Also check request headers (e.g. x-hsk-secret or Authorization)
+  // Also check request headers (e.g. x-hsk-secret or Authorization: Bearer <token>)
   if (!provided && e && e.headers) {
     provided = e.headers["x-hsk-secret"] || e.headers["X-HSK-Secret"] || e.headers["authorization"] || e.headers["Authorization"];
-    if (provided && provided.toLowerCase().indexOf("bearer ") === 0) {
-      provided = provided.substring(7);
+    if (provided && String(provided).toLowerCase().indexOf("bearer ") === 0) {
+      provided = String(provided).substring(7).trim();
     }
   }
 
-  return provided === configuredSecret;
+  if (!provided || String(provided).trim().length === 0) {
+    Logger.log("Authorization rejected: Request missing shared secret token.");
+    return false;
+  }
+
+  return String(provided).trim() === String(configuredSecret).trim();
 }
 
 /**
@@ -635,8 +646,9 @@ function handleCreateEnquiry(ss, payload) {
       };
     }
 
-    // 2. Active lead with same phone
-    if (existingPhone === cleanPhone && (existingStatus === "NEW" || existingStatus === "QUEUED" || existingStatus === "CALLING" || existingStatus === "PENDING_CALL" || existingStatus === "RETRY_SCHEDULED")) {
+    // 2. Active lead with same phone (normalized to account for Google Sheets storing phone as number)
+    var normExisting = normalizePhoneNumber(existingPhone);
+    if (normExisting === cleanPhone && (existingStatus === "NEW" || existingStatus === "QUEUED" || existingStatus === "CALLING" || existingStatus === "PENDING_CALL" || existingStatus === "RETRY_SCHEDULED")) {
       return {
         success: true,
         is_duplicate: true,

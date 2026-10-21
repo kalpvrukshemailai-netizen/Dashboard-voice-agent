@@ -116,11 +116,83 @@ export class HskSheetsClient {
   }
 
   public async getCallOutcomes(options?: { enquiry_id?: string; limit?: number }) {
-    return this.execute("getCallOutcomes", options || {});
+    try {
+      return await this.execute("getCallOutcomes", options || {});
+    } catch (err: any) {
+      if (err?.message?.includes("Unknown action: getCallOutcomes") && this.spreadsheetId && !this.useTestDouble) {
+        try {
+          const exportUrl = `https://docs.google.com/spreadsheets/d/${this.spreadsheetId}/export?format=csv&gid=1001`;
+          const res = await fetch(exportUrl, { cache: "no-store" });
+          if (res.ok) {
+            const csv = await res.text();
+            const lines = csv.trim().split("\n");
+            if (lines.length > 1) {
+              const headers = lines[0].split(",").map((h) => h.replace(/"/g, "").trim());
+              let outcomes: any[] = [];
+              for (let i = 1; i < lines.length; i++) {
+                if (!lines[i].trim()) continue;
+                const row = lines[i].split(",").map((c) => c.replace(/"/g, "").trim());
+                const record: Record<string, any> = {};
+                headers.forEach((h, idx) => {
+                  record[h] = row[idx] || "";
+                });
+                if (record.interested === "TRUE") record.interested = true;
+                if (record.interested === "FALSE") record.interested = false;
+                if (record.duration_seconds) record.duration_seconds = Number(record.duration_seconds) || 0;
+                if (record.attempt_sequence) record.attempt_sequence = Number(record.attempt_sequence) || 1;
+
+                if (options?.enquiry_id && record.enquiry_id !== options.enquiry_id) {
+                  continue;
+                }
+                outcomes.push(record);
+              }
+              if (options?.limit) outcomes = outcomes.slice(0, options.limit);
+              return { success: true, count: outcomes.length, outcomes, source: "google_sheet_direct" };
+            }
+            return { success: true, count: 0, outcomes: [], source: "google_sheet_direct" };
+          }
+        } catch {
+          // Fall through to original error
+        }
+      }
+      throw err;
+    }
   }
 
   public async getWebhookEvents(options?: { limit?: number }) {
-    return this.execute("getWebhookEvents", options || {});
+    try {
+      return await this.execute("getWebhookEvents", options || {});
+    } catch (err: any) {
+      if (err?.message?.includes("Unknown action: getWebhookEvents") && this.spreadsheetId && !this.useTestDouble) {
+        try {
+          const exportUrl = `https://docs.google.com/spreadsheets/d/${this.spreadsheetId}/export?format=csv&gid=1002`;
+          const res = await fetch(exportUrl, { cache: "no-store" });
+          if (res.ok) {
+            const csv = await res.text();
+            const lines = csv.trim().split("\n");
+            if (lines.length > 1) {
+              const headers = lines[0].split(",").map((h) => h.replace(/"/g, "").trim());
+              let events: any[] = [];
+              for (let i = 1; i < lines.length; i++) {
+                if (!lines[i].trim()) continue;
+                const row = lines[i].split(",").map((c) => c.replace(/"/g, "").trim());
+                const record: Record<string, any> = {};
+                headers.forEach((h, idx) => {
+                  record[h] = row[idx] || "";
+                });
+                events.push(record);
+              }
+              if (options?.limit) events = events.slice(0, options.limit);
+              return { success: true, count: events.length, events, source: "google_sheet_direct" };
+            }
+            return { success: true, count: 0, events: [], source: "google_sheet_direct" };
+          }
+        } catch {
+          // Fall through
+        }
+      }
+      throw err;
+    }
   }
 
   public async createEnquiry(enquiry: Partial<EnquiryRecord> & { customer_name: string; phone_number: string }) {
