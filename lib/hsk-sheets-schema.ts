@@ -56,9 +56,11 @@ export type WebhookProcessingStatus =
   | "FAILED";
 
 /**
- * 1. Enquiries Tab Headers (Columns A to U)
+ * 1. Enquiries Tab Headers
+ * - ENQUIRIES_HEADERS_21: Full canonical schema (Columns A to U) including denormalized summary fields.
+ * - ENQUIRIES_HEADERS_18: 18-column schema matching the HSK Google Spreadsheet tab.
  */
-export const ENQUIRIES_HEADERS = [
+export const ENQUIRIES_HEADERS_21 = [
   "enquiry_id",               // A (PK)
   "created_at",               // B (ISO)
   "customer_name",            // C (Immutable)
@@ -82,6 +84,30 @@ export const ENQUIRIES_HEADERS = [
   "error_details",            // U (Technical/Sync error details)
 ] as const;
 
+export const ENQUIRIES_HEADERS_18 = [
+  "enquiry_id",               // 1 (PK)
+  "created_at",               // 2 (ISO)
+  "customer_name",            // 3 (Immutable)
+  "phone_number",             // 4 (Immutable E.164)
+  "project_interest",         // 5 (Immutable)
+  "source",                   // 6 (Immutable)
+  "utm_campaign",             // 7 (Immutable)
+  "customer_notes",           // 8 (Immutable original notes)
+  "queue_class",              // 9 (FRESH, RETRY, BACKLOG, NONE)
+  "current_status",           // 10 (EnquiryStatus)
+  "attempt_sequence_count",   // 11 (Total dial sequence: 1, 2, 3...)
+  "customer_no_answer_count", // 12 (Customer busy/no-answer attempts: 0-3)
+  "technical_failures_count", // 13 (Carrier/gateway errors: 0-2)
+  "last_call_at",             // 14 (ISO)
+  "next_retry_at",            // 15 (ISO)
+  "active_session_id",        // 16 (In-flight session if CALLING)
+  "latest_outcome_id",        // 17 (FK to Call_Outcomes)
+  "error_details",            // 18 (Technical/Sync error details)
+] as const;
+
+// Default canonical header contract for client and backend
+export const ENQUIRIES_HEADERS = ENQUIRIES_HEADERS_21;
+
 export interface EnquiryRecord {
   enquiry_id: string;
   created_at: string;
@@ -98,10 +124,10 @@ export interface EnquiryRecord {
   technical_failures_count: number;
   last_call_at: string | null;
   next_retry_at: string | null;
-  latest_disposition: CallDisposition | null;
-  qualification_status: QualificationStatus | null;
+  latest_disposition?: CallDisposition | null;
+  qualification_status?: QualificationStatus | null;
   active_session_id: string | null;
-  assigned_agent: string | null;
+  assigned_agent?: string | null;
   latest_outcome_id: string | null;
   error_details: string | null;
 }
@@ -132,6 +158,30 @@ export const CALL_OUTCOMES_HEADERS = [
   "recorded_at",              // T (ISO)
 ] as const;
 
+export const CALL_OUTCOMES_HEADERS_CANONICAL = CALL_OUTCOMES_HEADERS;
+export const CALL_OUTCOMES_HEADERS_SPREADSHEET = [
+  "outcome_id",
+  "enquiry_id",
+  "attempt_sequence",
+  "channel",
+  "call_sid",
+  "conversation_id",
+  "call_started_at",
+  "call_ended_at",
+  "duration_seconds",
+  "disposition",
+  "interested",
+  "interest_status",
+  "property_interest",
+  "budget_range",
+  "preferred_location",
+  "timeline",
+  "next_step_type",
+  "interest_reason",
+  "qualification_status",
+  "transcript_summary",
+] as const;
+
 export interface CallOutcomeRecord {
   outcome_id: string;
   enquiry_id: string;
@@ -153,6 +203,15 @@ export interface CallOutcomeRecord {
   recording_url: string | null;
   transcript_summary: string | null;
   recorded_at: string;
+  // Aliases for spreadsheet schema compatibility
+  call_started_at?: string;
+  call_ended_at?: string;
+  disposition?: string;
+  interest_status?: string | null;
+  property_interest?: string | null;
+  preferred_location?: string | null;
+  next_step_type?: string | null;
+  interest_reason?: string | null;
 }
 
 /**
@@ -172,6 +231,21 @@ export const WEBHOOK_EVENTS_HEADERS = [
   "raw_payload",              // K (JSON string)
 ] as const;
 
+export const WEBHOOK_EVENTS_HEADERS_CANONICAL = WEBHOOK_EVENTS_HEADERS;
+export const WEBHOOK_EVENTS_HEADERS_SPREADSHEET = [
+  "event_id",
+  "provider",
+  "event_type",
+  "idempotency_key",
+  "enquiry_id",
+  "call_sid",
+  "conversation_id",
+  "received_at",
+  "processing_status",
+  "processed_at",
+  "raw_payload",
+] as const;
+
 export interface WebhookEventRecord {
   event_id: string;
   received_at: string;
@@ -184,6 +258,7 @@ export interface WebhookEventRecord {
   processing_status: WebhookProcessingStatus;
   error_details: string | null;
   raw_payload: string;
+  processed_at?: string;
 }
 
 /**
@@ -197,11 +272,21 @@ export const SYSTEM_STATE_HEADERS = [
   "notes",                    // E
 ] as const;
 
+export const SYSTEM_STATE_HEADERS_CANONICAL = SYSTEM_STATE_HEADERS;
+export const SYSTEM_STATE_HEADERS_SPREADSHEET = [
+  "state_key",
+  "state_value",
+  "updated_at",
+  "actor",
+  "notes",
+] as const;
+
 export interface SystemStateRecord {
   state_key: string;
   state_value: string;
   updated_at: string;
   updated_by: string;
+  actor?: string;
   notes: string | null;
 }
 

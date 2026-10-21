@@ -1,10 +1,11 @@
 # HSK Builder Group AI Calling Platform — Live External Setup Status Report
 
-**Document Version:** 1.0.0  
-**Generated At:** 2026-10-21T02:20:00+05:30 (Local Time)  
+**Document Version:** 1.1.0 (Phase 1 Dedicated Spreadsheet Reconciliation)  
+**Updated At:** 2026-10-21T12:20:00+05:30 (Local Time)  
 **Branch:** `feature/hsk-sheets-v1`  
-**Commit Reference:** `484dd4a`  
-**Automated Tests:** 19/19 Passing (~150ms)  
+**Dedicated Google Spreadsheet:** `1a4sfmK6faPs9QR3-_0fQzksn49epumoTbzwas2tnfv8`  
+**Spreadsheet URL:** `https://docs.google.com/spreadsheets/d/1a4sfmK6faPs9QR3-_0fQzksn49epumoTbzwas2tnfv8/edit?usp=sharing`  
+**Automated Tests:** 25/25 Passing (4 test suites, including live HTTPS spreadsheet verification)  
 **Next.js Production Build:** Succeeded (0 TypeScript errors, 11 routes active)  
 
 ---
@@ -13,16 +14,17 @@
 
 | Category | Component / Resource | Current Status | Safe Evidence / Identifier |
 | :--- | :--- | :--- | :--- |
-| **A. Host & Deployment** | Next.js Dashboard Host | **CODE COMPLETE, NOT LIVE-TESTED** | Local build & server verified (`http://localhost:3000`). No cloud deployment / git remote configured. |
-| **A. Domain** | Production Domain | **CODE COMPLETE, NOT LIVE-TESTED** | Running locally only. No production DNS or deployment domain exists yet. |
-| **A. Secrets** | Environment Variables (`.env.local`) | **PARTIALLY CONFIGURED** | Agent ID & Script URL present; 7 operational secrets missing from `.env.local`. |
-| **B. Database** | Google Sheets 4-Tab Engine | **BLOCKED — MY ACTION REQUIRED** | Deployed script URL responds HTTP 200, but runs legacy prototype; rejects HSK V1 actions. |
-| **B. Apps Script** | Web App & Scheduled Trigger | **PARTIALLY CONFIGURED** | URL: `.../AKfycbyWXYyqohLgoZEAoalxAwAJLHD3wGlI0bEqVzF6GtY9G3ZLycoC65UnSg79KXEmnJ80/exec`. Needs Code.js update & trigger. |
+| **A. Host & Deployment** | Next.js Dashboard Host | **LOCAL ONLY (NO PUBLIC URL)** | Build & local server verified (`http://localhost:3000`). No cloud deployment / DNS exists yet. |
+| **A. Domain** | Production Domain | **LOCAL ONLY** | `localhost:3000`. Trigger cannot point here; requires public worker URL. |
+| **A. Secrets** | Environment Variables (`.env.local`) | **PARTIALLY CONFIGURED** | `GOOGLE_SPREADSHEET_ID` set to `1a4sfmK6faPs9QR3-_0fQzksn49epumoTbzwas2tnfv8`. Secrets kept private. |
+| **B. Database** | Dedicated Google Spreadsheet | **VERIFIED LIVE (EMPTY TABS)** | All 4 tabs (`Enquiries`, `Call_Outcomes`, `Webhook_Events`, `System_State`) verified live via HTTPS. |
+| **B. Schema Contract** | 18 vs 21 Column Reconciled | **CODE COMPLETE & TESTED** | `apps_script/Code.js` uses dynamic header mapping. Supports 18-col or 21-col sheets without error. |
+| **B. Apps Script** | Dedicated Web App Deployment | **BLOCKED — MANUAL DEPLOY NEEDED** | Legacy prototype deployment untouched; new dedicated Apps Script project requires manual deployment. |
 | **C. AI Voice** | ElevenLabs Alex Voice Agent | **PARTIALLY CONFIGURED** | `agent_6601m51hdb02fjz8yp3sxcsfhe4j` identified; REST API requires `ELEVENLABS_API_KEY`. |
-| **C. Telephony** | Exotel Outbound Phone Number | **BLOCKED — MY ACTION REQUIRED** | Outbound dialer adapter ready; requires `ELEVENLABS_AGENT_PHONE_NUMBER_ID` in `.env.local`. |
+| **C. Telephony** | Exotel Outbound Phone Number | **BLOCKED — KEYS REQUIRED** | Outbound dialer adapter ready; requires `ELEVENLABS_AGENT_PHONE_NUMBER_ID` in `.env.local`. |
 | **D. Data Integrity** | Dashboard Demo vs Live Separation | **VERIFIED LIVE** | Persistent Amber Banner across all tabs, `[DEMO SAMPLE]` badges on tables, zero lead fabrication on empty sheets. |
 | **E. Security** | API Route Authorization & Gates | **VERIFIED LIVE** | Scheduler `/api/scheduler/worker` returns HTTP 401 unauthenticated; 9 AM–10 PM IST calling hours gate verified. |
-| **E. Test Call** | Controlled Outbound Live Call | **BLOCKED — MY ACTION REQUIRED** | Blocked on Apps Script update, telephony credentials, and explicit test number approval. |
+| **E. Test Call** | Controlled Outbound Live Call | **BLOCKED — OUT OF SCOPE FOR PHASE 1**| Zero calls made. Outbound calling explicitly prevented during Phase 1. |
 
 ---
 
@@ -66,51 +68,57 @@
 ---
 
 ### 3. Google Sheets & Google Apps Script
-- **Status:** `PARTIALLY CONFIGURED` (Web App reachable, but running legacy script; 4-tab engine blocked on script update)
-- **Deployment URL:**
+- **Status:** `SCHEMA RECONCILED & LOCALLY VERIFIED; DEDICATED SCRIPT DEPLOYMENT REQUIRED`
+- **Dedicated Spreadsheet ID:** `1a4sfmK6faPs9QR3-_0fQzksn49epumoTbzwas2tnfv8`
+- **Spreadsheet URL:** `https://docs.google.com/spreadsheets/d/1a4sfmK6faPs9QR3-_0fQzksn49epumoTbzwas2tnfv8/edit?usp=sharing`
+- **Previous Prototype Web App URL (Preserved, Untouched):**
   `https://script.google.com/macros/s/AKfycbyWXYyqohLgoZEAoalxAwAJLHD3wGlI0bEqVzF6GtY9G3ZLycoC65UnSg79KXEmnJ80/exec`
-- **Live Empirical Probe Results:**
-  - `GET /exec` probe returned:
-    ```json
-    {"success": true, "message": "AI Lead Calling API is running"}
-    ```
-  - `POST {"action": "getLeads"}` returned HTTP 200 with 1 legacy lead:
-    ```json
-    {"success": true, "leads": [{"lead_name": "Rahul Shah", "phone": "+91 8493920383", "company_name": "Patel Agro & Chem", "lead_notes": "Looking for 3 BHK luxury apartment near SG Highway, Ahmedabad"}]}
-    ```
-  - `POST {"action": "getEnquiries"}` returned:
-    ```json
-    {"success": false, "error": "Unknown request type"}
-    ```
-  - `POST {"action": "getSystemState"}` returned:
-    ```json
-    {"success": false, "error": "Unknown request type"}
-    ```
-- **Diagnostic Finding:**
-  - The live Web App is currently executing an older single-sheet prototype script.
-  - It does not yet recognize the HSK V1 actions (`getEnquiries`, `createEnquiry`, `claimNextEnquiry`, `recordOutcome`, `getSystemState`, `initializeTabs`).
-  - The 4-tab structure (`Enquiries`, `Call_Outcomes`, `Webhook_Events`, `System_State`) cannot be created or populated through the API until the script is updated in the Google Apps Script project.
-- **Exact Next Actions (One Blocker at a Time):**
-  1. Open the Google Spreadsheet linked to Web App `AKfycbyWXYyqohLgoZEAoalxAwAJLHD3wGlI0bEqVzF6GtY9G3ZLycoC65UnSg79KXEmnJ80`.
-  2. In the Google Sheet menu, navigate to **Extensions > Apps Script**.
-  3. Replace the contents of `Code.gs` / `Code.js` with the updated code from [apps_script/Code.js](file:///Users/Apple/Downloads/ai-calling-agent-mvp-zero/apps_script/Code.js).
-  4. In the Apps Script toolbar, select the `initializeTabs` function and click **Run** to generate all 4 tabs (`Enquiries`, `Call_Outcomes`, `Webhook_Events`, `System_State`) with schema headers. Existing customer data in other sheets is preserved.
-  5. Go to **Project Settings (gear icon) > Script Properties**, and set:
-     - `HSK_SHARED_SECRET`: (min 32-character random string, matched in `.env.local`)
-     - `CRON_SECRET`: (token matched in `.env.local`)
-     - `NEXTJS_WORKER_URL`: (URL of dashboard `/api/scheduler/worker`, e.g. `https://<your-domain>/api/scheduler/worker`)
-  6. Click **Deploy > New deployment**:
-     - Select type: **Web app**
-     - Description: `HSK Builder Group V1.0.0 Engine`
-     - Execute as: **Me**
-     - Who has access: **Anyone**
-     - Click **Deploy**.
-  7. In Apps Script, click **Triggers (clock icon) > Add Trigger**:
-     - Choose function: `onScheduledTrigger`
-     - Event source: `Time-driven`
-     - Type: `Minutes timer`
-     - Minute interval: `Every minute`
-     - Click **Save**.
+
+#### Live Spreadsheet Verification
+- Probed all 4 tabs live over HTTPS via Google Visualization API (`/gviz/tq?tqx=out:csv&sheet=<tab>`):
+  - **`Enquiries` Tab:** Exists. Row 1 has 18 columns. Zero data rows.
+  - **`Call_Outcomes` Tab:** Exists. Row 1 has 20 columns. Zero data rows.
+  - **`Webhook_Events` Tab:** Exists. Row 1 has 11 columns. Zero data rows.
+  - **`System_State` Tab:** Exists. Row 1 has 5 columns. Zero data rows.
+
+#### Schema Reconciliation Findings
+1. **`Enquiries` (18 vs 21 columns):**
+   - The dedicated spreadsheet has 18 columns (omitting `latest_disposition`, `qualification_status`, `assigned_agent`).
+   - Reconciled in [apps_script/Code.js](file:///Users/Apple/Downloads/ai-calling-agent-mvp-zero/apps_script/Code.js) via dynamic header mapping (`colMap[headerName]`). The script reads Row 1 headers dynamically and places values into the matching column index. Works flawlessly with either 18 or 21 columns without column shifting or truncation.
+2. **`Call_Outcomes` Aliases Reconciled:**
+   - Spreadsheet headers use aliases (`disposition`, `call_started_at`, `call_ended_at`, `interest_status`, `property_interest`, `preferred_location`, `next_step_type`, `interest_reason`).
+   - Apps Script supports canonical names and aliases interchangeably.
+3. **`Webhook_Events` Column Order Reconciled:**
+   - Spreadsheet puts `call_sid`, `conversation_id`, `received_at`, `processing_status`, `processed_at` in custom order. Dynamic header mapping ensures values write to the exact matching header.
+4. **`System_State` Actor Field Reconciled:**
+   - Spreadsheet uses `actor` instead of canonical `updated_by`. Aliased and supported.
+
+#### Dedicated Apps Script Deployment Status
+- Google account authentication CLI (`clasp`) is not present on this machine (`~/.clasprc.json` does not exist).
+- Automated CLI deployment of Google Apps Script is not possible without interactive Google OAuth login.
+- Therefore, the user must deploy the dedicated Apps Script project manually attached to the new spreadsheet (or standalone), as detailed in the checklist below.
+- The previous prototype deployment remains untouched to preserve prototype data.
+
+#### Exact Next Actions for Dedicated Apps Script:
+1. Open the new spreadsheet: `https://docs.google.com/spreadsheets/d/1a4sfmK6faPs9QR3-_0fQzksn49epumoTbzwas2tnfv8/edit?usp=sharing`
+2. In the Google Sheets menu, navigate to **Extensions > Apps Script**.
+3. Replace the entire code in `Code.gs` with the updated contents of [apps_script/Code.js](file:///Users/Apple/Downloads/ai-calling-agent-mvp-zero/apps_script/Code.js).
+4. Go to **Project Settings (gear icon) > Script Properties**, and configure:
+   - `GOOGLE_SPREADSHEET_ID`: `1a4sfmK6faPs9QR3-_0fQzksn49epumoTbzwas2tnfv8`
+   - `HSK_SHARED_SECRET`: (a secure 32+ character string, matching `HSK_APPS_SCRIPT_SHARED_SECRET` in `.env.local`)
+   - `CRON_SECRET`: (a secure token, matching `CRON_SECRET` in `.env.local`)
+   - `NEXTJS_WORKER_URL`: *(Leave empty until a public dashboard domain is deployed; do NOT set to localhost)*
+5. Click **Deploy > New deployment**:
+   - Type: **Web app**
+   - Description: `HSK Builder Group V1 Dedicated Engine`
+   - Execute as: **Me**
+   - Who has access: **Anyone**
+   - Click **Deploy**.
+   - Copy the newly generated **Web App URL** (`https://script.google.com/macros/s/.../exec`).
+6. Update `.env.local`:
+   - `GOOGLE_APPS_SCRIPT_URL=<YOUR_NEW_WEB_APP_URL>`
+   - `HSK_APPS_SCRIPT_SHARED_SECRET=<YOUR_SHARED_SECRET>`
+7. *(Note on Time-Driven Trigger)*: Do **NOT** create the time-driven trigger yet because the dashboard currently runs on `localhost:3000`. Google Apps Script servers cannot reach `localhost`. Create the trigger only after public deployment.
 
 ---
 

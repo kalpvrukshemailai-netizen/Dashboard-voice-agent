@@ -18,6 +18,23 @@ var TABS = {
 };
 
 var HEADERS = {
+  ENQUIRIES_21: [
+    "enquiry_id", "created_at", "customer_name", "phone_number",
+    "project_interest", "source", "utm_campaign", "customer_notes",
+    "queue_class", "current_status", "attempt_sequence_count",
+    "customer_no_answer_count", "technical_failures_count",
+    "last_call_at", "next_retry_at", "latest_disposition",
+    "qualification_status", "active_session_id", "assigned_agent",
+    "latest_outcome_id", "error_details"
+  ],
+  ENQUIRIES_18: [
+    "enquiry_id", "created_at", "customer_name", "phone_number",
+    "project_interest", "source", "utm_campaign", "customer_notes",
+    "queue_class", "current_status", "attempt_sequence_count",
+    "customer_no_answer_count", "technical_failures_count",
+    "last_call_at", "next_retry_at", "active_session_id",
+    "latest_outcome_id", "error_details"
+  ],
   ENQUIRIES: [
     "enquiry_id", "created_at", "customer_name", "phone_number",
     "project_interest", "source", "utm_campaign", "customer_notes",
@@ -34,13 +51,28 @@ var HEADERS = {
     "budget_range", "timeline", "site_visit", "dnd_requested",
     "qualification_summary", "recording_url", "transcript_summary", "recorded_at"
   ],
+  CALL_OUTCOMES_SPREADSHEET: [
+    "outcome_id", "enquiry_id", "attempt_sequence", "channel",
+    "call_sid", "conversation_id", "call_started_at", "call_ended_at",
+    "duration_seconds", "disposition", "interested", "interest_status",
+    "property_interest", "budget_range", "preferred_location", "timeline",
+    "next_step_type", "interest_reason", "qualification_status", "transcript_summary"
+  ],
   WEBHOOK_EVENTS: [
     "event_id", "received_at", "provider", "event_type",
     "idempotency_key", "enquiry_id", "conversation_id", "call_sid",
     "processing_status", "error_details", "raw_payload"
   ],
+  WEBHOOK_EVENTS_SPREADSHEET: [
+    "event_id", "provider", "event_type", "idempotency_key",
+    "enquiry_id", "call_sid", "conversation_id", "received_at",
+    "processing_status", "processed_at", "raw_payload"
+  ],
   SYSTEM_STATE: [
     "state_key", "state_value", "updated_at", "updated_by", "notes"
+  ],
+  SYSTEM_STATE_SPREADSHEET: [
+    "state_key", "state_value", "updated_at", "actor", "notes"
   ]
 };
 
@@ -176,10 +208,15 @@ function doGet(e) {
 // -------------------------------------------------------------
 
 function getSpreadsheet(spreadsheetId) {
-  if (spreadsheetId && String(spreadsheetId).trim().length > 0) {
-    return SpreadsheetApp.openById(String(spreadsheetId).trim());
+  var id = spreadsheetId || PropertiesService.getScriptProperties().getProperty("GOOGLE_SPREADSHEET_ID");
+  if (id && String(id).trim().length > 0) {
+    return SpreadsheetApp.openById(String(id).trim());
   }
-  return SpreadsheetApp.getActiveSpreadsheet();
+  var active = SpreadsheetApp.getActiveSpreadsheet();
+  if (active) {
+    return active;
+  }
+  throw new Error("No Google Spreadsheet configured. Set GOOGLE_SPREADSHEET_ID in ScriptProperties or pass spreadsheetId in request payload.");
 }
 
 function handleInitializeTabs(ss) {
@@ -189,16 +226,27 @@ function handleInitializeTabs(ss) {
   for (var tabKey in TABS) {
     var tabName = TABS[tabKey];
     var sheet = ss.getSheetByName(tabName);
+    var expectedHeaders = HEADERS[tabKey];
+
     if (!sheet) {
       sheet = ss.insertSheet(tabName);
-      var headers = HEADERS[tabKey];
-      sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+      sheet.getRange(1, 1, 1, expectedHeaders.length).setValues([expectedHeaders]);
       sheet.setFrozenRows(1);
-      sheet.getRange(1, 1, 1, headers.length).setFontWeight("bold");
+      sheet.getRange(1, 1, 1, expectedHeaders.length).setFontWeight("bold");
       created.push(tabName);
+    } else {
+      existing.push(tabName);
+      // If sheet exists but is completely empty (0 rows), set headers
+      if (sheet.getLastRow() === 0) {
+        sheet.getRange(1, 1, 1, expectedHeaders.length).setValues([expectedHeaders]);
+        sheet.setFrozenRows(1);
+        sheet.getRange(1, 1, 1, expectedHeaders.length).setFontWeight("bold");
+      }
+    }
 
-      // Initialize default rows for System_State
-      if (tabName === TABS.SYSTEM_STATE) {
+    // Initialize default rows for System_State if not populated
+    if (tabName === TABS.SYSTEM_STATE) {
+      if (sheet.getLastRow() <= 1) {
         var now = new Date().toISOString();
         var defaultState = [
           ["DIALER_LOCK", JSON.stringify({ locked: false, session_id: null, enquiry_id: null, locked_at: null }), now, "SYSTEM_INIT", "Dialer concurrency lock"],
@@ -208,14 +256,13 @@ function handleInitializeTabs(ss) {
         ];
         sheet.getRange(2, 1, defaultState.length, 5).setValues(defaultState);
       }
-    } else {
-      existing.push(tabName);
     }
   }
 
   return {
     success: true,
-    message: "Tabs initialized successfully",
+    message: "Tabs verified and initialized successfully",
+    spreadsheet_id: ss.getId(),
     created: created,
     existing: existing
   };
@@ -317,29 +364,40 @@ function handleCreateEnquiry(ss, payload) {
   var queueClass = inWindow ? "FRESH" : "BACKLOG";
   var currentStatus = "QUEUED";
 
-  var newRow = [
-    enquiryId,                                // enquiry_id
-    now,                                      // created_at
-    enquiry.customer_name.trim(),             // customer_name (immutable)
-    cleanPhone,                               // phone_number (immutable)
-    (enquiry.project_interest || "General").trim(), // project_interest (immutable)
-    (enquiry.source || "Website").trim(),     // source (immutable)
-    (enquiry.utm_campaign || "").trim(),      // utm_campaign (immutable)
-    (enquiry.customer_notes || "").trim(),    // customer_notes (immutable)
-    queueClass,                               // queue_class
-    currentStatus,                            // current_status
-    0,                                        // attempt_sequence_count
-    0,                                        // customer_no_answer_count
-    0,                                        // technical_failures_count
-    "",                                       // last_call_at
-    "",                                       // next_retry_at
-    "",                                       // latest_disposition
-    "",                                       // qualification_status
-    "",                                       // active_session_id
-    enquiry.assigned_agent || "",             // assigned_agent
-    "",                                       // latest_outcome_id
-    ""                                        // error_details
-  ];
+  var colMap = {};
+  for (var h = 0; h < headers.length; h++) {
+    colMap[headers[h]] = h;
+  }
+
+  // Build row dynamically matching the sheet's actual header names (supports 18-col, 21-col, or custom order)
+  var newRow = new Array(headers.length).fill("");
+  var setVal = function(headerName, val) {
+    if (colMap[headerName] !== undefined) {
+      newRow[colMap[headerName]] = val;
+    }
+  };
+
+  setVal("enquiry_id", enquiryId);
+  setVal("created_at", now);
+  setVal("customer_name", enquiry.customer_name.trim());
+  setVal("phone_number", cleanPhone);
+  setVal("project_interest", (enquiry.project_interest || "General").trim());
+  setVal("source", (enquiry.source || "Website").trim());
+  setVal("utm_campaign", (enquiry.utm_campaign || "").trim());
+  setVal("customer_notes", (enquiry.customer_notes || "").trim());
+  setVal("queue_class", queueClass);
+  setVal("current_status", currentStatus);
+  setVal("attempt_sequence_count", 0);
+  setVal("customer_no_answer_count", 0);
+  setVal("technical_failures_count", 0);
+  setVal("last_call_at", "");
+  setVal("next_retry_at", "");
+  setVal("latest_disposition", "");
+  setVal("qualification_status", "");
+  setVal("active_session_id", "");
+  setVal("assigned_agent", enquiry.assigned_agent || "");
+  setVal("latest_outcome_id", "");
+  setVal("error_details", "");
 
   sheet.appendRow(newRow);
 
@@ -636,43 +694,62 @@ function handleRecordOutcome(ss, payload) {
   }
 
   // Update Enquiry row (IMMUTABLE CUSTOMER FIELDS ARE PRESERVED)
-  enqSheet.getRange(targetRow, colMap["queue_class"] + 1).setValue(newQueueClass);
-  enqSheet.getRange(targetRow, colMap["current_status"] + 1).setValue(newStatus);
-  enqSheet.getRange(targetRow, colMap["customer_no_answer_count"] + 1).setValue(currentNoAnswer);
-  enqSheet.getRange(targetRow, colMap["technical_failures_count"] + 1).setValue(currentTechFail);
-  enqSheet.getRange(targetRow, colMap["last_call_at"] + 1).setValue(nowIso);
-  enqSheet.getRange(targetRow, colMap["next_retry_at"] + 1).setValue(nextRetryIso);
-  enqSheet.getRange(targetRow, colMap["latest_disposition"] + 1).setValue(disposition);
-  enqSheet.getRange(targetRow, colMap["qualification_status"] + 1).setValue(qualStatus);
-  enqSheet.getRange(targetRow, colMap["active_session_id"] + 1).setValue(""); // Clear active session
-  enqSheet.getRange(targetRow, colMap["latest_outcome_id"] + 1).setValue(outcome.outcome_id);
-  if (outcome.error_details) {
+  if (colMap["queue_class"] !== undefined) enqSheet.getRange(targetRow, colMap["queue_class"] + 1).setValue(newQueueClass);
+  if (colMap["current_status"] !== undefined) enqSheet.getRange(targetRow, colMap["current_status"] + 1).setValue(newStatus);
+  if (colMap["customer_no_answer_count"] !== undefined) enqSheet.getRange(targetRow, colMap["customer_no_answer_count"] + 1).setValue(currentNoAnswer);
+  if (colMap["technical_failures_count"] !== undefined) enqSheet.getRange(targetRow, colMap["technical_failures_count"] + 1).setValue(currentTechFail);
+  if (colMap["last_call_at"] !== undefined) enqSheet.getRange(targetRow, colMap["last_call_at"] + 1).setValue(nowIso);
+  if (colMap["next_retry_at"] !== undefined) enqSheet.getRange(targetRow, colMap["next_retry_at"] + 1).setValue(nextRetryIso);
+  if (colMap["latest_disposition"] !== undefined) enqSheet.getRange(targetRow, colMap["latest_disposition"] + 1).setValue(disposition);
+  if (colMap["qualification_status"] !== undefined) enqSheet.getRange(targetRow, colMap["qualification_status"] + 1).setValue(qualStatus);
+  if (colMap["active_session_id"] !== undefined) enqSheet.getRange(targetRow, colMap["active_session_id"] + 1).setValue(""); // Clear active session
+  if (colMap["latest_outcome_id"] !== undefined) enqSheet.getRange(targetRow, colMap["latest_outcome_id"] + 1).setValue(outcome.outcome_id);
+  if (colMap["error_details"] !== undefined && outcome.error_details) {
     enqSheet.getRange(targetRow, colMap["error_details"] + 1).setValue(outcome.error_details);
   }
 
-  // Append to Call_Outcomes tab
-  var outcomeRow = [
-    outcome.outcome_id,
-    outcome.enquiry_id,
-    outcome.attempt_sequence || 1,
-    outcome.customer_attempt_number || (disposition === "BUSY" || disposition === "NO_ANSWER" ? currentNoAnswer : ""),
-    outcome.channel || "EXOTEL_PSTN",
-    outcome.call_sid || "",
-    outcome.conversation_id || "",
-    outcome.call_start_time || nowIso,
-    outcome.duration_seconds || 0,
-    disposition,
-    outcome.interested === true ? true : (outcome.interested === false ? false : ""),
-    outcome.property_config || "",
-    outcome.budget_range || "",
-    outcome.timeline || "",
-    outcome.site_visit || "",
-    dndRequested,
-    outcome.qualification_summary || "",
-    outcome.recording_url || "",
-    outcome.transcript_summary || "",
-    nowIso
-  ];
+  // Append to Call_Outcomes tab (Header-driven to support canonical & alias column names)
+  var outcomesHeaders = outcomesSheet.getDataRange().getValues()[0];
+  var outColMap = {};
+  for (var oh = 0; oh < outcomesHeaders.length; oh++) {
+    outColMap[outcomesHeaders[oh]] = oh;
+  }
+
+  var outcomeRow = new Array(outcomesHeaders.length).fill("");
+  var setOutcomeCol = function(nameAliases, val) {
+    for (var a = 0; a < nameAliases.length; a++) {
+      var col = outColMap[nameAliases[a]];
+      if (col !== undefined) {
+        outcomeRow[col] = val;
+        return;
+      }
+    }
+  };
+
+  setOutcomeCol(["outcome_id"], outcome.outcome_id);
+  setOutcomeCol(["enquiry_id"], outcome.enquiry_id);
+  setOutcomeCol(["attempt_sequence"], outcome.attempt_sequence || 1);
+  setOutcomeCol(["customer_attempt_number"], outcome.customer_attempt_number || (disposition === "BUSY" || disposition === "NO_ANSWER" ? currentNoAnswer : ""));
+  setOutcomeCol(["channel"], outcome.channel || "EXOTEL_PSTN");
+  setOutcomeCol(["call_sid"], outcome.call_sid || "");
+  setOutcomeCol(["conversation_id"], outcome.conversation_id || "");
+  setOutcomeCol(["call_start_time", "call_started_at"], outcome.call_start_time || outcome.call_started_at || nowIso);
+  setOutcomeCol(["call_ended_at", "recorded_at"], outcome.call_ended_at || outcome.recorded_at || nowIso);
+  setOutcomeCol(["duration_seconds"], outcome.duration_seconds || 0);
+  setOutcomeCol(["call_disposition", "disposition"], disposition);
+  setOutcomeCol(["interested"], outcome.interested === true ? true : (outcome.interested === false ? false : ""));
+  setOutcomeCol(["property_config", "property_interest"], outcome.property_config || outcome.property_interest || "");
+  setOutcomeCol(["budget_range"], outcome.budget_range || "");
+  setOutcomeCol(["preferred_location"], outcome.preferred_location || "");
+  setOutcomeCol(["timeline"], outcome.timeline || "");
+  setOutcomeCol(["site_visit", "next_step_type"], outcome.site_visit || outcome.next_step_type || "");
+  setOutcomeCol(["dnd_requested"], dndRequested);
+  setOutcomeCol(["qualification_summary", "interest_reason"], outcome.qualification_summary || outcome.interest_reason || "");
+  setOutcomeCol(["qualification_status", "interest_status"], qualStatus);
+  setOutcomeCol(["recording_url"], outcome.recording_url || "");
+  setOutcomeCol(["transcript_summary"], outcome.transcript_summary || "");
+  setOutcomeCol(["recorded_at"], nowIso);
+
   outcomesSheet.appendRow(outcomeRow);
 
   // Release dialer lock and active session
@@ -722,20 +799,35 @@ function handleRecordWebhookEvent(ss, payload) {
     }
   }
 
+  var webhookHeaders = webhookSheet.getDataRange().getValues()[0];
+  var webColMap = {};
+  for (var wh = 0; wh < webhookHeaders.length; wh++) {
+    webColMap[webhookHeaders[wh]] = wh;
+  }
+
   var nowIso = new Date().toISOString();
-  var row = [
-    event.event_id,
-    nowIso,
-    event.provider,
-    event.event_type || "",
-    event.idempotency_key || event.event_id,
-    event.enquiry_id || "",
-    event.conversation_id || "",
-    event.call_sid || "",
-    event.processing_status || "RECEIVED",
-    event.error_details || "",
-    typeof event.raw_payload === "object" ? JSON.stringify(event.raw_payload) : String(event.raw_payload || "")
-  ];
+  var row = new Array(webhookHeaders.length).fill("");
+  var setWebCol = function(nameAliases, val) {
+    for (var a = 0; a < nameAliases.length; a++) {
+      var col = webColMap[nameAliases[a]];
+      if (col !== undefined) {
+        row[col] = val;
+        return;
+      }
+    }
+  };
+
+  setWebCol(["event_id"], event.event_id);
+  setWebCol(["received_at"], nowIso);
+  setWebCol(["provider"], event.provider);
+  setWebCol(["event_type"], event.event_type || "");
+  setWebCol(["idempotency_key"], event.idempotency_key || event.event_id);
+  setWebCol(["enquiry_id"], event.enquiry_id || "");
+  setWebCol(["conversation_id"], event.conversation_id || "");
+  setWebCol(["call_sid"], event.call_sid || "");
+  setWebCol(["processing_status"], event.processing_status || "RECEIVED");
+  setWebCol(["error_details", "processed_at"], event.error_details || nowIso);
+  setWebCol(["raw_payload"], typeof event.raw_payload === "object" ? JSON.stringify(event.raw_payload) : String(event.raw_payload || ""));
 
   webhookSheet.appendRow(row);
 
@@ -928,21 +1020,29 @@ function onScheduledTrigger() {
   if (!lock.tryLock(5000)) return;
 
   try {
-    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var ss = getSpreadsheet();
     if (ss) {
       var stateSheet = ss.getSheetByName(TABS.SYSTEM_STATE);
-      setSystemStateValue(stateSheet, "SCHEDULER_HEARTBEAT", new Date().toISOString(), "TRIGGER");
+      if (stateSheet) {
+        setSystemStateValue(stateSheet, "SCHEDULER_HEARTBEAT", new Date().toISOString(), "TRIGGER");
+      }
     }
 
     // Check calling hours
     if (!isCallingWindowOpen()) return;
 
-    // Invoke Next.js Queue Worker over HTTP if configured
+    // Invoke Next.js Queue Worker over HTTP if configured with a reachable public URL
     var props = PropertiesService.getScriptProperties();
     var workerUrl = props.getProperty("NEXTJS_WORKER_URL");
     var cronSecret = props.getProperty("CRON_SECRET");
 
     if (workerUrl && workerUrl.trim().length > 0) {
+      // Safety check: Never attempt HTTP calls to localhost or unroutable loopback addresses from Google Apps Script
+      if (workerUrl.indexOf("localhost") !== -1 || workerUrl.indexOf("127.0.0.1") !== -1) {
+        Logger.log("Trigger skipped: NEXTJS_WORKER_URL is set to localhost/loopback, which is not reachable from Google Apps Script cloud.");
+        return;
+      }
+
       var headers = { "Content-Type": "application/json" };
       if (cronSecret && cronSecret.trim().length > 0) {
         headers["Authorization"] = "Bearer " + cronSecret.trim();
