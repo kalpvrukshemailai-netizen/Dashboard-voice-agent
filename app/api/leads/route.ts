@@ -49,10 +49,21 @@ function mapHskEnquiryToLead(enq: EnquiryRecord, idx: number): Lead {
 }
 
 export async function GET(req: Request) {
-  try {
-    const { searchParams } = new URL(req.url);
-    const limit = searchParams.get("limit") ? Number(searchParams.get("limit")) : 100;
+  const { searchParams } = new URL(req.url);
+  const isExplicitDemo = searchParams.get("demo") === "true";
+  const limit = searchParams.get("limit") ? Number(searchParams.get("limit")) : 100;
 
+  if (isExplicitDemo) {
+    return NextResponse.json({
+      success: true,
+      isDemo: true,
+      source: "demo_sample",
+      leads: FALLBACK_DEMO_LEADS,
+      count: FALLBACK_DEMO_LEADS.length,
+    });
+  }
+
+  try {
     const result = await hskSheetsClient.getEnquiries({ limit });
 
     if (result && result.success) {
@@ -67,30 +78,49 @@ export async function GET(req: Request) {
       });
     }
 
-    return NextResponse.json({
-      success: true,
-      isDemo: true,
-      source: "demo_fallback",
-      leads: FALLBACK_DEMO_LEADS,
-      warning: result?.error || "Google Sheets returned unsuccessful response",
-    });
+    return NextResponse.json(
+      {
+        success: false,
+        isDemo: false,
+        source: "google_sheet",
+        error: result?.error || "Google Sheets returned unsuccessful response",
+        leads: [],
+        count: 0,
+      },
+      { status: 502 },
+    );
   } catch (error) {
     const errMsg = error instanceof Error ? error.message : "Failed to load leads from Google Sheets";
-    return NextResponse.json({
-      success: true,
-      isDemo: true,
-      source: "demo_fallback",
-      leads: FALLBACK_DEMO_LEADS,
-      warning: errMsg,
-    });
+    return NextResponse.json(
+      {
+        success: false,
+        isDemo: false,
+        source: "google_sheet",
+        error: errMsg,
+        leads: [],
+        count: 0,
+      },
+      { status: 502 },
+    );
   }
 }
 
 export async function POST(req: Request) {
-  try {
-    const body = await req.json().catch(() => ({}));
-    const limit = body.limit ? Number(body.limit) : 100;
+  const body = await req.json().catch(() => ({}));
+  const isExplicitDemo = body.demo === true;
+  const limit = body.limit ? Number(body.limit) : 100;
 
+  if (isExplicitDemo) {
+    return NextResponse.json({
+      success: true,
+      isDemo: true,
+      source: "demo_sample",
+      leads: FALLBACK_DEMO_LEADS,
+      count: FALLBACK_DEMO_LEADS.length,
+    });
+  }
+
+  try {
     const result = await hskSheetsClient.getEnquiries({ limit });
 
     if (result && result.success) {
@@ -105,21 +135,29 @@ export async function POST(req: Request) {
       });
     }
 
-    return NextResponse.json({
-      success: true,
-      isDemo: true,
-      source: "demo_fallback",
-      leads: FALLBACK_DEMO_LEADS,
-      warning: result?.error || "Google Sheets returned unsuccessful response",
-    });
+    return NextResponse.json(
+      {
+        success: false,
+        isDemo: false,
+        source: "google_sheet",
+        error: result?.error || "Google Sheets returned unsuccessful response",
+        leads: [],
+        count: 0,
+      },
+      { status: 502 },
+    );
   } catch (error) {
     const errMsg = error instanceof Error ? error.message : "Failed to load leads from Google Sheets";
-    return NextResponse.json({
-      success: true,
-      isDemo: true,
-      source: "demo_fallback",
-      leads: FALLBACK_DEMO_LEADS,
-      warning: errMsg,
-    });
+    return NextResponse.json(
+      {
+        success: false,
+        isDemo: false,
+        source: "google_sheet",
+        error: errMsg,
+        leads: [],
+        count: 0,
+      },
+      { status: 502 },
+    );
   }
 }

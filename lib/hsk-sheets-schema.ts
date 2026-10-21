@@ -36,6 +36,7 @@ export type EnquiryStatus =
 
 export type CallDisposition =
   | "ANSWERED"
+  | "COMPLETED"
   | "BUSY"
   | "NO_ANSWER"
   | "FAILED_TECH"
@@ -43,7 +44,9 @@ export type CallDisposition =
 
 export type QualificationStatus =
   | "INTERESTED"
+  | "QUALIFIED"
   | "NOT_INTERESTED"
+  | "DISQUALIFIED"
   | "UNREACHED"
   | "DND"
   | "PENDING";
@@ -208,6 +211,7 @@ export interface CallOutcomeRecord {
   call_ended_at?: string;
   disposition?: string;
   interest_status?: string | null;
+  qualification_status?: string | null;
   property_interest?: string | null;
   preferred_location?: string | null;
   next_step_type?: string | null;

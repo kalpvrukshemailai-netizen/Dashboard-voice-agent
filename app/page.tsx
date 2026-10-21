@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import React, { useState, useEffect, useMemo, useCallback } from "react";
 import {
   RefreshCw,
   Play,
@@ -10,11 +10,18 @@ import {
   FileSpreadsheet,
   AlertTriangle,
   CheckCircle2,
+  XCircle,
+  Radio,
+  Clock,
+  ShieldAlert,
+  Flame,
+  RotateCcw,
+  Building2,
 } from "lucide-react";
 import { Sidebar, NavTab } from "@/components/dashboard/sidebar";
 import { Topbar } from "@/components/dashboard/topbar";
 import { KpiCards } from "@/components/dashboard/kpi-card";
-import { RecentActivity } from "@/components/dashboard/recent-activity";
+import { QueueSummaryCard } from "@/components/dashboard/queue-summary-card";
 import { LeadTable } from "@/components/leads/lead-table";
 import { LeadFilters, FilterState } from "@/components/leads/lead-filters";
 import { LeadDetailDrawer } from "@/components/leads/lead-detail-drawer";
@@ -22,39 +29,51 @@ import { CallModal } from "@/components/calls/call-modal";
 import { CampaignView } from "@/components/campaigns/campaign-view";
 import { CallsTable } from "@/components/calls-view/calls-table";
 import { AnalyticsView } from "@/components/analytics/analytics-view";
+import { SystemHealthView } from "@/components/settings/system-health-view";
 import { SettingsModal } from "@/components/settings/settings-modal";
 import { useToast } from "@/components/ui/toast";
-import {
-  Lead,
-  FALLBACK_DEMO_LEADS,
-  extractSheetId,
-} from "@/lib/google-sheets";
+import type { EnquiryRecord, CallOutcomeRecord } from "@/lib/hsk-sheets-schema";
+import { Lead, FALLBACK_DEMO_LEADS } from "@/lib/google-sheets";
+import { cn } from "@/lib/utils";
 
 export default function DashboardPage() {
   const { toast } = useToast();
 
-  // Navigation & Modal States
+  // Navigation & Drawer States
   const [activeTab, setActiveTab] = useState<NavTab>("overview");
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isCallModalOpen, setIsCallModalOpen] = useState(false);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
-  // Settings / Connection State
-  const [sheetUrl, setSheetUrl] = useState("");
-  const [tab, setTab] = useState("Sheet1");
+  // Settings / Environment State
+  const [spreadsheetId, setSpreadsheetId] = useState("1a4sfmK6faPs9QR3-_0fQzksn49epumoTbzwas2tnfv8");
   const [agencyName, setAgencyName] = useState("HSK Builder Group");
-  const [isDemoMode, setIsDemoMode] = useState(true);
-  const [isTestingConnection, setIsTestingConnection] = useState(false);
-  const [connectionStatus, setConnectionStatus] = useState<"idle" | "connected" | "error">("idle");
-  const [connectionError, setConnectionError] = useState("");
+  const [isExplicitDemo, setIsExplicitDemo] = useState(false);
 
   // Data States
-  const [leads, setLeads] = useState<Lead[]>(FALLBACK_DEMO_LEADS);
-  const [selectedLead, setSelectedLead] = useState<Lead | null>(FALLBACK_DEMO_LEADS[0] || null);
-  const [isLoading, setIsLoading] = useState(false);
+  const [enquiries, setEnquiries] = useState<EnquiryRecord[]>([]);
+  const [outcomes, setOutcomes] = useState<CallOutcomeRecord[]>([]);
+  const [leads, setLeads] = useState<Lead[]>([]);
+  const [selectedItem, setSelectedItem] = useState<any>(null);
+
+  // Status & Health
+  const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [connectionWarning, setConnectionWarning] = useState<string | null>(null);
+  const [isTriggeringWorker, setIsTriggeringWorker] = useState(false);
+  const [lastRefreshedAt, setLastRefreshedAt] = useState<Date | null>(null);
+  const [connectionStatus, setConnectionStatus] = useState<"connected" | "error" | "mock">("connected");
+  const [connectionError, setConnectionError] = useState<string | null>(null);
+
+  // Calling Hours & Dialer Lock
+  const [isCallingWindowOpen, setIsCallingWindowOpen] = useState(true);
+  const [nextWindowOpensAt, setNextWindowOpensAt] = useState<string | null>(null);
+  const [dialerLock, setDialerLock] = useState<{
+    locked: boolean;
+    session_id?: string | null;
+    enquiry_id?: string | null;
+    locked_at?: string | null;
+  }>({ locked: false });
 
   // Filters State
   const [filters, setFilters] = useState<FilterState>({
@@ -65,417 +84,461 @@ export default function DashboardPage() {
     timeline: "All",
   });
 
-  // Load saved settings from localStorage if available
-  useEffect(() => {
+  // Fetch all live dashboard data
+  const loadDashboardData = useCallback(async (silent = false) => {
+    if (!silent) setIsRefreshing(true);
+    setErrorState(null);
+
     try {
-      const savedUrl = localStorage.getItem("ai_caller_sheet_url");
-      const savedTab = localStorage.getItem("ai_caller_sheet_tab");
-      const savedAgency = localStorage.getItem("ai_caller_agency");
-      if (savedUrl) setSheetUrl(savedUrl);
-      if (savedTab) setTab(savedTab);
-      if (savedAgency) setAgencyName(savedAgency);
+      // 1. Fetch Enquiries
+      const enqPromise = fetch(isExplicitDemo ? "/api/leads?demo=true" : "/api/enquiries", {
+        method: "GET",
+        cache: "no-store",
+      });
 
-      const params = new URLSearchParams(window.location.search);
-      const tabParam = params.get("tab") as NavTab;
-      if (tabParam && ["overview", "leads", "campaigns", "calls", "analytics", "settings"].includes(tabParam)) {
-        setActiveTab(tabParam);
-      }
-    } catch {
-      // Ignore localStorage errors
-    }
-  }, []);
+      // 2. Fetch Call Outcomes
+      const callsPromise = fetch("/api/calls", {
+        method: "GET",
+        cache: "no-store",
+      });
 
-  const spreadsheetId = useMemo(() => extractSheetId(sheetUrl), [sheetUrl]);
+      // 3. Fetch System State
+      const statePromise = fetch("/api/system/state", {
+        method: "GET",
+        cache: "no-store",
+      });
 
-  // Fetch leads from backend
-  const fetchLeads = useCallback(
-    async (targetSpreadsheetId?: string, silent = false): Promise<Lead[] | undefined> => {
-      const idToUse = targetSpreadsheetId ?? spreadsheetId;
-      if (!silent) setIsRefreshing(true);
+      const [enqRes, callsRes, stateRes] = await Promise.allSettled([
+        enqPromise,
+        callsPromise,
+        statePromise,
+      ]);
 
-      try {
-        const response = await fetch("/api/leads", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            spreadsheetId: idToUse,
-            tab,
-          }),
-        });
-
-        const data = await response.json();
-
-        if (data.success && Array.isArray(data.leads)) {
-          setLeads(data.leads);
-          setIsDemoMode(Boolean(data.isDemo));
-          setConnectionWarning(data.warning || null);
-
-          // Functional updater to avoid dependency loop on selectedLead
-          setSelectedLead((currentSelected) => {
-            if (currentSelected) {
-              const updated = data.leads.find((l: Lead) => l.row === currentSelected.row);
-              return updated || currentSelected;
-            }
-            return data.leads[0] || null;
-          });
-
-          if (!silent) {
-            if (data.isDemo) {
-              toast("Showing demo real-estate prospects. Connect a Google Sheet to sync live.", "info");
-            } else {
-              toast(`Synced ${data.leads.length} leads from Google Sheet.`, "success");
-            }
-          }
-          return data.leads as Lead[];
+      // Process Enquiries Response
+      if (enqRes.status === "fulfilled" && enqRes.value.ok) {
+        const enqData = await enqRes.value.json();
+        if (enqData.success && Array.isArray(enqData.enquiries)) {
+          setEnquiries(enqData.enquiries);
+          setLeads(mapEnquiriesToLeads(enqData.enquiries));
+          setConnectionStatus("connected");
+          setConnectionError(null);
+        } else if (enqData.success && Array.isArray(enqData.leads)) {
+          // Fallback demo endpoint response
+          setLeads(enqData.leads);
+          setConnectionStatus(enqData.isDemo ? "mock" : "connected");
         } else {
-          throw new Error(data.error || "Failed to load leads");
-        }
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : "Error connecting to Google Sheets";
-        setConnectionWarning(msg);
-        if (!silent) {
-          toast(msg, "error");
-        }
-        return undefined;
-      } finally {
-        if (!silent) setIsRefreshing(false);
-      }
-    },
-    [spreadsheetId, tab, toast],
-  );
-
-  // Initial fetch on mount or when sheet configuration changes
-  useEffect(() => {
-    fetchLeads(undefined, true);
-  }, [spreadsheetId, tab]);
-
-
-  // Handle Testing Sheet Connection
-  const handleTestConnection = async () => {
-    setIsTestingConnection(true);
-    setConnectionStatus("idle");
-    setConnectionError("");
-
-    try {
-      if (!spreadsheetId) {
-        throw new Error("Please enter a valid Google Sheet URL or ID.");
-      }
-
-      const freshLeads = await fetchLeads(spreadsheetId, false);
-      if (freshLeads && freshLeads.length > 0) {
-        setConnectionStatus("connected");
-        setIsDemoMode(false);
-        try {
-          localStorage.setItem("ai_caller_sheet_url", sheetUrl);
-          localStorage.setItem("ai_caller_sheet_tab", tab);
-          localStorage.setItem("ai_caller_agency", agencyName);
-        } catch {
-          // Ignore storage error
+          handleEnquiryError(enqData.error || "Failed to load enquiries");
         }
       } else {
-        throw new Error("Connected but no valid lead rows found with name and phone.");
+        const statusText = enqRes.status === "fulfilled" ? `HTTP ${enqRes.value.status}` : "Network Error";
+        handleEnquiryError(`Unable to reach Google Apps Script Web App (${statusText})`);
+      }
+
+      // Process Calls Response
+      if (callsRes.status === "fulfilled" && callsRes.value.ok) {
+        const callData = await callsRes.value.json();
+        if (callData.success && Array.isArray(callData.outcomes)) {
+          setOutcomes(callData.outcomes);
+        }
+      }
+
+      // Process State Response
+      if (stateRes.status === "fulfilled" && stateRes.value.ok) {
+        const stateData = await stateRes.value.json();
+        if (stateData.success) {
+          setIsCallingWindowOpen(Boolean(stateData.calling_window_open));
+          setNextWindowOpensAt(stateData.next_calling_window_opens_at || null);
+          if (stateData.system_state?.DIALER_LOCK) {
+            setDialerLock(stateData.system_state.DIALER_LOCK);
+          }
+        }
+      }
+
+      setLastRefreshedAt(new Date());
+    } catch (err) {
+      handleEnquiryError(err instanceof Error ? err.message : "Error connecting to backend");
+    } finally {
+      setIsLoading(false);
+      if (!silent) setIsRefreshing(false);
+    }
+  }, [isExplicitDemo]);
+
+  function setErrorState(err: string | null) {
+    setConnectionError(err);
+  }
+
+  function handleEnquiryError(msg: string) {
+    setConnectionStatus("error");
+    setConnectionError(msg);
+    setEnquiries([]);
+    setLeads([]);
+  }
+
+  function mapEnquiriesToLeads(enqs: EnquiryRecord[]): Lead[] {
+    return enqs.map((enq, idx) => ({
+      row: idx + 2,
+      name: enq.customer_name,
+      phone: enq.phone_number,
+      company: "HSK Prospect",
+      notes: enq.customer_notes || "",
+      callStatus: enq.current_status === "CALLING" ? "Calling" : enq.current_status === "QUALIFIED" ? "Completed" : "Pending",
+      interested: enq.qualification_status === "QUALIFIED" ? true : enq.qualification_status === "NOT_INTERESTED" ? false : null,
+      interestStatus: enq.qualification_status || null,
+      propertyInterest: enq.project_interest || "HSK Builder Group",
+      budgetRange: null,
+      preferredLocation: null,
+      timeline: null,
+      nextStepType: enq.current_status === "QUALIFIED" ? "Schedule Site Visit" : null,
+      interestReason: enq.error_details || null,
+      conversationId: enq.active_session_id || enq.latest_outcome_id || null,
+      calledAt: enq.last_call_at || null,
+      enquiryId: enq.enquiry_id,
+      queueClass: enq.queue_class,
+      attemptSequenceCount: enq.attempt_sequence_count,
+      customerNoAnswerCount: enq.customer_no_answer_count,
+      nextRetryAt: enq.next_retry_at,
+      latestOutcomeId: enq.latest_outcome_id,
+      latestDisposition: enq.latest_disposition,
+    }));
+  }
+
+  // Initial load
+  useEffect(() => {
+    loadDashboardData(true);
+  }, [loadDashboardData]);
+
+  // Safe Synthetic Test Enquiry Submission (Pipeline Verification)
+  const handleCreateSyntheticEnquiry = async () => {
+    try {
+      toast("Submitting synthetic test enquiry...", "info");
+      const res = await fetch("/api/enquiries", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          customer_name: "Vikram Patel",
+          phone_number: "+919876543210",
+          project_interest: "HSK Solitaire 3 BHK",
+          source: "Dashboard Verification Test",
+          utm_campaign: "pipeline_test",
+          customer_notes: "Synthetic test enquiry to verify HSK Google Sheets intake pipeline.",
+        }),
+      });
+
+      const json = await res.json();
+      if (json.success) {
+        toast(`Enquiry ${json.enquiry_id} created successfully! Added to ${json.queue_class} queue.`, "success");
+        loadDashboardData(false);
+      } else {
+        toast(json.error || "Failed to create synthetic enquiry", "error");
       }
     } catch (err) {
-      setConnectionStatus("error");
-      const msg = err instanceof Error ? err.message : "Failed to connect to Google Sheet";
-      setConnectionError(msg);
-      toast(msg, "error");
-    } finally {
-      setIsTestingConnection(false);
+      toast(err instanceof Error ? err.message : "Intake request failed", "error");
     }
   };
 
-  // Lead selection & call triggers
-  const handleSelectLead = (lead: Lead) => {
-    setSelectedLead(lead);
+  // Safe Operator Trigger: Queue Worker Tick
+  const handleTriggerWorker = async () => {
+    setIsTriggeringWorker(true);
+    try {
+      const res = await fetch("/api/scheduler/worker", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+      const json = await res.json();
+      if (json.success) {
+        if (json.action === "SKIPPED") {
+          toast(`Worker skipped: ${json.reason} (Calling hours: 9 AM - 10 PM IST)`, "info");
+        } else if (json.action === "CLAIMED") {
+          toast(`Worker claimed ${json.enquiry_id} for dialer processing.`, "success");
+        } else {
+          toast(json.message || "Queue tick evaluated successfully.", "info");
+        }
+        loadDashboardData(true);
+      } else {
+        toast(json.error || "Worker authorization rejected", "error");
+      }
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Worker tick failed", "error");
+    } finally {
+      setIsTriggeringWorker(false);
+    }
+  };
+
+  // Selection
+  const handleSelectLead = (item: any) => {
+    setSelectedItem(item);
     setIsDrawerOpen(true);
   };
 
-  const handleCallLead = (lead: Lead) => {
-    setSelectedLead(lead);
-    setIsDrawerOpen(false);
-    setIsCallModalOpen(true);
-  };
-
-  const notifiedConversationsRef = useRef<Set<string>>(new Set());
-
-  const handleLeadUpdatedFromCall = useCallback(
-    (updated: Lead) => {
-      // Deduplicate using conversationId or timestamp + row (Rule 2)
-      const dedupeKey = updated.conversationId
-        ? `conv_${updated.conversationId}`
-        : `row_${updated.row}_${updated.calledAt || "completed"}`;
-
-      if (notifiedConversationsRef.current.has(dedupeKey)) {
-        return;
-      }
-      notifiedConversationsRef.current.add(dedupeKey);
-
-      setLeads((prev) => prev.map((l) => (l.row === updated.row ? updated : l)));
-      setSelectedLead((prev) => (prev?.row === updated.row ? updated : prev));
-      toast(`Qualification results received for ${updated.name}`, "success");
-    },
-    [toast],
-  );
-
-  const refreshLeadsSilent = useCallback(() => {
-    return fetchLeads(undefined, true);
-  }, [fetchLeads]);
-
-  // Filtering leads
-  const filteredLeads = useMemo(() => {
-    return leads.filter((lead) => {
-      // Search
+  // Filtering for Enquiries tab
+  const filteredEnquiries = useMemo(() => {
+    return enquiries.filter((enq) => {
       if (filters.search) {
         const q = filters.search.toLowerCase();
-        const matchesName = lead.name.toLowerCase().includes(q);
-        const matchesPhone = lead.phone.toLowerCase().includes(q);
-        const matchesCompany = lead.company.toLowerCase().includes(q);
-        const matchesLocation = (lead.preferredLocation || "").toLowerCase().includes(q);
-        const matchesNotes = lead.notes.toLowerCase().includes(q);
-        if (!matchesName && !matchesPhone && !matchesCompany && !matchesLocation && !matchesNotes) {
+        const matchesName = enq.customer_name.toLowerCase().includes(q);
+        const matchesPhone = enq.phone_number.toLowerCase().includes(q);
+        const matchesId = enq.enquiry_id.toLowerCase().includes(q);
+        const matchesProject = (enq.project_interest || "").toLowerCase().includes(q);
+        const matchesNotes = (enq.customer_notes || "").toLowerCase().includes(q);
+        if (!matchesName && !matchesPhone && !matchesId && !matchesProject && !matchesNotes) {
           return false;
         }
       }
 
-      // Status
       if (filters.status !== "All") {
-        if (lead.callStatus.toLowerCase() !== filters.status.toLowerCase()) {
+        if (enq.current_status.toLowerCase() !== filters.status.toLowerCase()) {
           return false;
         }
       }
 
-      // Interest
       if (filters.interest !== "All") {
-        const leadInt = (lead.interestStatus || "").toUpperCase();
-        const filterInt = filters.interest.toUpperCase();
-        if (filterInt === "UNKNOWN") {
-          if (lead.interestStatus) return false;
-        } else if (!leadInt.includes(filterInt)) {
-          return false;
-        }
+        const qStat = (enq.qualification_status || "").toUpperCase();
+        if (filters.interest === "QUALIFIED" && !qStat.includes("QUALIFIED") && !qStat.includes("INTERESTED")) return false;
+        if (filters.interest === "NOT_INTERESTED" && !qStat.includes("NOT_INTERESTED")) return false;
       }
 
-      // Intent
-      if (filters.intent !== "All") {
-        const intent = (lead.propertyInterest || "").toUpperCase();
-        if (!intent.includes(filters.intent.toUpperCase())) {
-          return false;
-        }
-      }
+      return true;
+    });
+  }, [enquiries, filters]);
 
-      // Timeline
-      if (filters.timeline !== "All") {
-        const tl = (lead.timeline || "").toUpperCase();
-        if (!tl.includes(filters.timeline.toUpperCase())) {
-          return false;
-        }
+  const filteredLeads = useMemo(() => {
+    return leads.filter((l) => {
+      if (filters.search) {
+        const q = filters.search.toLowerCase();
+        const matches =
+          l.name.toLowerCase().includes(q) ||
+          l.phone.toLowerCase().includes(q) ||
+          l.notes.toLowerCase().includes(q);
+        if (!matches) return false;
       }
-
       return true;
     });
   }, [leads, filters]);
 
   return (
     <div
-      className="flex h-screen overflow-hidden w-full"
-      style={{ background: "var(--app-background)", color: "var(--text-primary)", fontFamily: "'Inter', sans-serif" }}
+      className="flex h-screen overflow-hidden w-full select-none"
+      style={{
+        background: "#F8FAFC",
+        color: "#0F172A",
+        fontFamily: "'Inter', sans-serif",
+      }}
     >
-      {/* Left Navigation Sidebar */}
+      {/* ── Left Sidebar Navigation ── */}
       <Sidebar
         activeTab={activeTab}
         onSelectTab={setActiveTab}
         isOpenMobile={isMobileMenuOpen}
         onCloseMobile={() => setIsMobileMenuOpen(false)}
-        leadCount={leads.length}
+        leadCount={enquiries.length > 0 ? enquiries.length : leads.length}
+        outcomesCount={outcomes.length}
         agencyName={agencyName}
+        isCallingWindowOpen={isCallingWindowOpen}
+        connectionStatus={connectionStatus}
       />
 
-      {/* Main Content Area */}
+      {/* ── Main Workspace Content ── */}
       <div className="flex-1 flex flex-col h-full overflow-hidden min-w-0 w-full">
         {/* Top Header Bar */}
         <Topbar
           activeTab={activeTab}
           onOpenMobileMenu={() => setIsMobileMenuOpen(true)}
-          onRefresh={() => fetchLeads()}
+          onRefresh={() => loadDashboardData(false)}
           isRefreshing={isRefreshing}
-          onOpenSettings={() => setIsSettingsOpen(true)}
+          onOpenSettings={() => setActiveTab("settings")}
           searchQuery={filters.search}
           onSearchChange={(q) => setFilters((prev) => ({ ...prev, search: q }))}
-          isDemoMode={isDemoMode}
+          isDemoMode={isExplicitDemo}
+          connectionStatus={connectionStatus}
+          lastRefreshedAt={lastRefreshedAt}
+          isCallingWindowOpen={isCallingWindowOpen}
         />
 
         {/* Dynamic Route Body */}
         <main
-          className="flex-1 overflow-y-auto overflow-x-hidden w-full max-w-[1400px] mx-auto space-y-6 min-w-0"
-          style={{ padding: "28px var(--content-px, 32px)" }}
+          className="flex-1 overflow-y-auto overflow-x-hidden w-full max-w-[1440px] mx-auto space-y-6 min-w-0"
+          style={{ padding: "24px 28px" }}
         >
-          {/* Global Demo Mode Warning Banner across all views */}
-          {isDemoMode && (
-            <div
-              className="rounded-xl px-4 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs min-w-0 w-full shadow-xs"
-              style={{
-                background: "rgba(245, 158, 11, 0.08)",
-                border: "1px solid rgba(245, 158, 11, 0.28)",
-              }}
-            >
-              <div className="flex items-start sm:items-center gap-2.5 min-w-0 flex-1">
-                <div
-                  className="w-6 h-6 rounded-lg flex items-center justify-center shrink-0 mt-0.5 sm:mt-0"
-                  style={{ background: "rgba(245, 158, 11, 0.18)", color: "#B45309" }}
-                >
-                  <Sparkles className="w-3.5 h-3.5" />
+          {/* ── CONNECTION ERROR / INTEGRATION ACTION BANNER ── */}
+          {connectionStatus === "error" && (
+            <div className="rounded-2xl p-5 border border-amber-300 bg-amber-50/70 shadow-xs flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4 animate-in fade-in">
+              <div className="flex items-start gap-3.5 min-w-0">
+                <div className="w-10 h-10 rounded-xl bg-amber-100 text-amber-800 flex items-center justify-center shrink-0 border border-amber-200 mt-0.5">
+                  <AlertTriangle className="w-5 h-5 text-amber-700" />
                 </div>
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-                    <span className="font-extrabold text-amber-950 text-xs tracking-wide">
-                      DEMO MODE ACTIVE — DEMONSTRATION DATASET
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="font-extrabold text-amber-950 text-sm tracking-wide">
+                      Dedicated Apps Script Web App Deployment Required
                     </span>
-                    <span className="text-amber-400 hidden sm:inline">•</span>
-                    <span className="text-[12px] text-amber-900 font-medium">
-                      Showing sample HSK Builder Group prospects. Live customer enquiries and call outcomes are NOT fabricated.
+                    <span className="px-2 py-0.5 rounded bg-amber-200/80 text-amber-900 text-[10px] font-bold font-mono">
+                      Action Required
                     </span>
                   </div>
-                  {connectionWarning && (
-                    <p className="text-[11.5px] text-amber-800 mt-1 font-mono break-all">
-                      Integration Status: {connectionWarning} (Google Sheet Apps Script requires V1 Code.js update)
-                    </p>
-                  )}
+                  <p className="text-xs text-amber-900 mt-1 leading-relaxed">
+                    The spreadsheet <code className="font-mono font-bold">{spreadsheetId}</code> was verified live, but the Google Apps Script Web App is either unlinked or using the legacy single-sheet prototype.
+                  </p>
+                  <p className="text-[11.5px] text-amber-800 mt-1 font-mono">
+                    Diagnostic: {connectionError}
+                  </p>
                 </div>
               </div>
 
+              <div className="flex items-center gap-2.5 shrink-0 self-start lg:self-center">
+                <button
+                  onClick={() => setActiveTab("settings")}
+                  className="px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-medium text-xs transition-colors shadow-2xs"
+                >
+                  View Deployment Guide
+                </button>
+                <button
+                  onClick={() => {
+                    setIsExplicitDemo(!isExplicitDemo);
+                    loadDashboardData(false);
+                  }}
+                  className="px-3 py-2 rounded-xl bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 font-medium text-xs transition-colors"
+                >
+                  {isExplicitDemo ? "Exit Demo Preview" : "Explore Demo Preview"}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* ── EXPLICIT DEMO PREVIEW BANNER ── */}
+          {isExplicitDemo && (
+            <div className="rounded-xl px-4 py-2.5 bg-blue-50/80 border border-blue-200 text-blue-900 text-xs flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-blue-600 shrink-0" />
+                <span>
+                  <strong>PREVIEW MODE ACTIVE:</strong> Showing demonstration prospect samples for visual verification. Live customer calls are not initiated.
+                </span>
+              </div>
               <button
-                onClick={() => setIsSettingsOpen(true)}
-                className="ds-btn ds-btn-secondary shrink-0 text-xs font-semibold self-start sm:self-center h-8 px-3"
+                onClick={() => {
+                  setIsExplicitDemo(false);
+                  loadDashboardData(false);
+                }}
+                className="font-bold underline text-blue-700 hover:text-blue-900 shrink-0"
               >
-                <FileSpreadsheet className="w-3.5 h-3.5" />
-                Sheet Settings
+                Switch to Live Sheet
               </button>
             </div>
           )}
 
-          {/* OVERVIEW TAB */}
+          {/* ══════════════════════════════════════════════════════════════════
+              TAB 1: OVERVIEW (Command Center)
+          ══════════════════════════════════════════════════════════════════ */}
           {activeTab === "overview" && (
             <div className="space-y-6 min-w-0 w-full">
-              {/* Section A: Header Actions */}
-              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 min-w-0 w-full">
-                <div className="min-w-0">
+              {/* Header Actions */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div>
                   <h1
-                    className="text-2xl sm:text-3xl font-extrabold tracking-tight"
-                    style={{ fontFamily: "'Manrope', sans-serif", color: "var(--text-primary)" }}
+                    className="text-2xl sm:text-3xl font-extrabold tracking-tight text-slate-900"
+                    style={{ fontFamily: "'Manrope', sans-serif" }}
                   >
-                    Real Estate Lead Intelligence
+                    HSK Command Center
                   </h1>
-                  <p className="text-xs sm:text-sm mt-1" style={{ color: "var(--text-secondary)" }}>
-                    Your AI qualification workspace at a glance.
+                  <p className="text-xs sm:text-sm text-slate-500 mt-1">
+                    Live operational metrics, active queue states, and AI voice qualification funnel.
                   </p>
                 </div>
 
                 <div className="flex items-center gap-2.5 shrink-0 flex-wrap">
                   <button
-                    onClick={() => fetchLeads()}
-                    disabled={isRefreshing}
-                    className="ds-btn ds-btn-secondary"
+                    onClick={handleCreateSyntheticEnquiry}
+                    className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 font-semibold text-xs transition-colors shadow-2xs"
                   >
-                    <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? "animate-spin" : ""}`} />
-                    Refresh
+                    <Sparkles className="w-3.5 h-3.5 text-teal-600" />
+                    <span>Test Synthetic Intake</span>
                   </button>
 
                   <button
-                    onClick={() => setActiveTab("campaigns")}
-                    className="ds-btn ds-btn-primary"
+                    onClick={() => setActiveTab("leads")}
+                    className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-semibold text-xs transition-colors shadow-xs"
                   >
-                    <Play className="w-3.5 h-3.5 fill-current" />
-                    Start Campaign
+                    <span>Manage Enquiries</span>
+                    <ArrowRight className="w-3.5 h-3.5" />
                   </button>
                 </div>
               </div>
 
-              {/* Section B: Live Data Connection Status (Only when live) */}
-              {!isDemoMode && (
-                <div
-                  className="rounded-xl px-4 py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs min-w-0 w-full"
-                  style={{
-                    background: "rgba(15, 159, 143, 0.04)",
-                    border: "1px solid rgba(15, 159, 143, 0.18)",
-                  }}
-                >
-                  <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                    <div
-                      className="w-6 h-6 rounded-lg flex items-center justify-center shrink-0"
-                      style={{ background: "rgba(15, 159, 143, 0.12)", color: "#0F9F8F" }}
-                    >
-                      <CheckCircle2 className="w-3.5 h-3.5" />
-                    </div>
-                    <div className="min-w-0 flex-1 flex flex-wrap items-center gap-x-2 gap-y-0.5">
-                      <span className="font-semibold text-slate-800 text-xs">
-                        Live Google Sheet Connected
-                      </span>
-                      <span className="text-slate-300 hidden sm:inline">•</span>
-                      <span className="text-[12px] text-slate-500">
-                        Synchronized with your real-estate spreadsheet ({tab}).
-                      </span>
-                    </div>
-                  </div>
+              {/* 12-Metric Comprehensive KPI Suite */}
+              <KpiCards
+                enquiries={enquiries}
+                outcomes={outcomes}
+                leads={leads}
+                isLoading={isLoading}
+                isUnavailable={connectionStatus === "error" && !isExplicitDemo}
+              />
 
-                  <button
-                    onClick={() => setIsSettingsOpen(true)}
-                    className="ds-btn ds-btn-secondary shrink-0 text-xs font-semibold self-start sm:self-center h-8 px-3"
-                  >
-                    <FileSpreadsheet className="w-3.5 h-3.5" />
-                    Sheet Settings
-                  </button>
-                </div>
-              )}
+              {/* Queue Summary & Dialer Concurrency Card */}
+              <QueueSummaryCard
+                enquiries={enquiries}
+                isCallingWindowOpen={isCallingWindowOpen}
+                nextWindowOpensAt={nextWindowOpensAt}
+                dialerLock={dialerLock}
+                onTriggerWorker={handleTriggerWorker}
+                isTriggering={isTriggeringWorker}
+              />
 
-              {/* Section C: Dynamic KPI Cards */}
-              <KpiCards leads={leads} />
-
-              {/* Section D & E: Main Operational Area (Recent Leads + Call Activity) */}
-              <div className="overview-grid">
-                <div className="min-w-0 w-full">
+              {/* 2-Column Grid: Recent Enquiries & Recent Outcomes */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 min-w-0">
+                {/* Left: Recent Enquiries */}
+                <div className="min-w-0">
                   <LeadTable
-                    leads={leads.slice(0, 6)}
-                    selectedLead={selectedLead}
+                    enquiries={enquiries.slice(0, 5)}
+                    leads={leads.slice(0, 5)}
+                    selectedLead={selectedItem}
                     onSelectLead={handleSelectLead}
-                    onCallLead={handleCallLead}
-                    loading={isLoading}
                     compact={true}
                     onViewAll={() => setActiveTab("leads")}
-                    isDemo={isDemoMode}
+                    isDemo={isExplicitDemo}
+                    onCreateTestEnquiry={handleCreateSyntheticEnquiry}
                   />
                 </div>
 
-                <div className="min-w-0 w-full">
-                  <RecentActivity
-                    leads={leads}
+                {/* Right: Recent Call Outcomes */}
+                <div className="min-w-0">
+                  <CallsTable
+                    outcomes={outcomes.slice(0, 5)}
+                    enquiries={enquiries}
+                    leads={leads.slice(0, 5)}
                     onSelectLead={handleSelectLead}
+                    isDemo={isExplicitDemo}
                   />
                 </div>
               </div>
             </div>
           )}
 
-          {/* LEADS TAB */}
+          {/* ══════════════════════════════════════════════════════════════════
+              TAB 2: ENQUIRIES (Lead Management)
+          ══════════════════════════════════════════════════════════════════ */}
           {activeTab === "leads" && (
             <div className="space-y-6">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
-                  <h1 className="text-2xl font-extrabold text-slate-900 tracking-tight">
-                    Leads
+                  <h1
+                    className="text-2xl font-extrabold text-slate-900 tracking-tight"
+                    style={{ fontFamily: "'Manrope', sans-serif" }}
+                  >
+                    Enquiry Management
                   </h1>
                   <p className="text-xs sm:text-sm text-slate-500 mt-1">
-                    Manage and qualify your real-estate prospects.
+                    Immutable prospect submissions, attempt counters, and AI qualification details.
                   </p>
                 </div>
 
-                <button
-                  onClick={() => setActiveTab("campaigns")}
-                  className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs transition-all shadow-xs"
-                >
-                  <Play className="w-3.5 h-3.5 fill-current" />
-                  Start Campaign
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={handleCreateSyntheticEnquiry}
+                    className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-teal-50 hover:bg-teal-100 text-teal-800 border border-teal-200 font-semibold text-xs transition-colors"
+                  >
+                    <Sparkles className="w-3.5 h-3.5 text-teal-600" />
+                    <span>New Test Intake</span>
+                  </button>
+                </div>
               </div>
 
               {/* Lead Filters Toolbar */}
@@ -491,158 +554,158 @@ export default function DashboardPage() {
                     timeline: "All",
                   })
                 }
-                totalCount={leads.length}
-                filteredCount={filteredLeads.length}
+                totalCount={enquiries.length > 0 ? enquiries.length : leads.length}
+                filteredCount={enquiries.length > 0 ? filteredEnquiries.length : filteredLeads.length}
               />
 
-              {/* Full Leads Table */}
+              {/* Full Enquiries Table */}
               <LeadTable
+                enquiries={filteredEnquiries}
                 leads={filteredLeads}
-                selectedLead={selectedLead}
+                selectedLead={selectedItem}
                 onSelectLead={handleSelectLead}
-                onCallLead={handleCallLead}
                 loading={isLoading}
-                isDemo={isDemoMode}
+                compact={false}
+                isDemo={isExplicitDemo}
+                onCreateTestEnquiry={handleCreateSyntheticEnquiry}
               />
             </div>
           )}
 
-          {/* CAMPAIGNS TAB */}
-          {activeTab === "campaigns" && (
-            <CampaignView
-              leads={leads}
-              onCallLead={handleCallLead}
-              onSelectLead={handleSelectLead}
-            />
-          )}
-
-          {/* CALLS TAB */}
+          {/* ══════════════════════════════════════════════════════════════════
+              TAB 3: CALL OUTCOMES (Call History)
+          ══════════════════════════════════════════════════════════════════ */}
           {activeTab === "calls" && (
             <CallsTable
+              outcomes={outcomes}
+              enquiries={enquiries}
               leads={leads}
               onSelectLead={handleSelectLead}
-              onCallLead={handleCallLead}
-              isDemo={isDemoMode}
+              isDemo={isExplicitDemo}
             />
           )}
 
-          {/* ANALYTICS TAB */}
+          {/* ══════════════════════════════════════════════════════════════════
+              TAB 4: QUEUE OPERATIONS
+          ══════════════════════════════════════════════════════════════════ */}
+          {activeTab === "queue" && (
+            <div className="space-y-6">
+              <div>
+                <h1
+                  className="text-2xl font-extrabold text-slate-900 tracking-tight"
+                  style={{ fontFamily: "'Manrope', sans-serif" }}
+                >
+                  Queue & Dialer Operations
+                </h1>
+                <p className="text-xs sm:text-sm text-slate-500 mt-1">
+                  Enforces business rules: 9 AM–10 PM IST calling hours, fresh enquiry priority, and concurrency locks.
+                </p>
+              </div>
+
+              <QueueSummaryCard
+                enquiries={enquiries}
+                isCallingWindowOpen={isCallingWindowOpen}
+                nextWindowOpensAt={nextWindowOpensAt}
+                dialerLock={dialerLock}
+                onTriggerWorker={handleTriggerWorker}
+                isTriggering={isTriggeringWorker}
+              />
+
+              {/* Queue Priority Rules Specification Card */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="p-5 rounded-2xl bg-white border border-slate-200/90 shadow-xs space-y-2.5 text-xs">
+                  <div className="flex items-center gap-2 text-teal-800 font-bold uppercase tracking-wider text-[11px]">
+                    <Flame className="w-4 h-4 text-emerald-600" />
+                    <span>Priority 1 — Newest Fresh Intake</span>
+                  </div>
+                  <p className="text-slate-600 leading-relaxed text-[11.5px]">
+                    Enquiries submitted via the website during calling hours (9 AM – 10 PM IST) are targeted for an outbound call within 2 minutes. The most recently received fresh enquiry (<code className="font-mono text-slate-700">created_at DESC</code>) is dialed ahead of waiting retries.
+                  </p>
+                </div>
+
+                <div className="p-5 rounded-2xl bg-white border border-slate-200/90 shadow-xs space-y-2.5 text-xs">
+                  <div className="flex items-center gap-2 text-blue-800 font-bold uppercase tracking-wider text-[11px]">
+                    <RotateCcw className="w-4 h-4 text-blue-600" />
+                    <span>Priority 2 — 2-Minute Retries</span>
+                  </div>
+                  <p className="text-slate-600 leading-relaxed text-[11.5px]">
+                    Unanswered or busy calls schedule an automated retry exactly 2 minutes later. A maximum of 3 customer attempts are permitted total. After 3 customer no-answers, the enquiry is marked <code className="font-mono text-slate-700">NOT_ANSWERED</code>.
+                  </p>
+                </div>
+
+                <div className="p-5 rounded-2xl bg-white border border-slate-200/90 shadow-xs space-y-2.5 text-xs">
+                  <div className="flex items-center gap-2 text-amber-800 font-bold uppercase tracking-wider text-[11px]">
+                    <Clock className="w-4 h-4 text-amber-600" />
+                    <span>Priority 3 — Overnight Backlog</span>
+                  </div>
+                  <p className="text-slate-600 leading-relaxed text-[11.5px]">
+                    Enquiries arriving between 10:00 PM and 9:00 AM IST are tagged <code className="font-mono text-slate-700">BACKLOG</code>. When calling hours open at 9:00 AM IST, backlog enquiries are processed in chronological order (<code className="font-mono text-slate-700">created_at ASC</code>) whenever the agent is free.
+                  </p>
+                </div>
+
+                <div className="p-5 rounded-2xl bg-white border border-slate-200/90 shadow-xs space-y-2.5 text-xs">
+                  <div className="flex items-center gap-2 text-rose-800 font-bold uppercase tracking-wider text-[11px]">
+                    <ShieldAlert className="w-4 h-4 text-rose-600" />
+                    <span>DND & Technical Safety</span>
+                  </div>
+                  <p className="text-slate-600 leading-relaxed text-[11.5px]">
+                    If a prospect requests Do-Not-Call (DND), the enquiry is immediately marked <code className="font-mono text-slate-700">DO_NOT_CALL</code> and all automated calls cease forever. Carrier/telephony errors are isolated in a separate technical counter and never auto-retried blindly.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ══════════════════════════════════════════════════════════════════
+              TAB 5: PROJECT PORTFOLIOS (Campaigns)
+          ══════════════════════════════════════════════════════════════════ */}
+          {activeTab === "campaigns" && (
+            <CampaignView
+              enquiries={enquiries}
+              leads={leads}
+              onSelectLead={handleSelectLead}
+            />
+          )}
+
+          {/* ══════════════════════════════════════════════════════════════════
+              TAB 6: ANALYTICS
+          ══════════════════════════════════════════════════════════════════ */}
           {activeTab === "analytics" && (
             <AnalyticsView leads={leads} />
           )}
 
-          {/* SETTINGS TAB */}
+          {/* ══════════════════════════════════════════════════════════════════
+              TAB 7: SYSTEM HEALTH & INTEGRATIONS
+          ══════════════════════════════════════════════════════════════════ */}
           {activeTab === "settings" && (
-            <div className="max-w-2xl bg-white border border-slate-200/80 rounded-2xl p-6 shadow-xs space-y-6">
-              <div>
-                <h2 className="text-lg font-bold text-slate-900">Workspace Settings</h2>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  Configure Google Sheet source of truth and voice webhook parameters.
-                </p>
-              </div>
-
-              <div className="space-y-4 text-xs">
-                <div>
-                  <label className="block text-[11px] font-semibold text-slate-500 mb-1">
-                    Google Sheet URL or Spreadsheet ID
-                  </label>
-                  <input
-                    type="text"
-                    value={sheetUrl}
-                    onChange={(e) => setSheetUrl(e.target.value)}
-                    placeholder="https://docs.google.com/spreadsheets/d/YOUR_SHEET_ID/edit"
-                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 placeholder-slate-400 font-mono text-xs focus:outline-none focus:border-indigo-500"
-                  />
-                </div>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-[11px] font-semibold text-slate-500 mb-1">
-                      Tab Name
-                    </label>
-                    <input
-                      type="text"
-                      value={tab}
-                      onChange={(e) => setTab(e.target.value)}
-                      placeholder="Sheet1"
-                      className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 text-xs focus:outline-none focus:border-indigo-500"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-[11px] font-semibold text-slate-500 mb-1">
-                      Agency Name
-                    </label>
-                    <input
-                      type="text"
-                      value={agencyName}
-                      onChange={(e) => setAgencyName(e.target.value)}
-                      placeholder="Beprompter"
-                      className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 text-xs font-semibold focus:outline-none focus:border-indigo-500"
-                    />
-                  </div>
-                </div>
-
-                <div className="pt-2 flex items-center justify-between">
-                  <button
-                    onClick={handleTestConnection}
-                    disabled={isTestingConnection}
-                    className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-semibold text-xs transition-colors"
-                  >
-                    {isTestingConnection ? "Testing Connection..." : "Test Sheet Connection"}
-                  </button>
-
-                  {connectionStatus === "connected" && (
-                    <span className="text-emerald-700 font-semibold text-xs">
-                      Connection Verified! Leads loaded.
-                    </span>
-                  )}
-                  {connectionStatus === "error" && (
-                    <span className="text-rose-600 font-medium text-xs">
-                      {connectionError}
-                    </span>
-                  )}
-                </div>
-              </div>
-            </div>
+            <SystemHealthView />
           )}
         </main>
       </div>
 
-      {/* Slide-Over Lead Detail Drawer */}
+      {/* Slide-Over Enquiry Detail Drawer */}
       <LeadDetailDrawer
-        lead={selectedLead}
+        enquiry={selectedItem && selectedItem.enquiry_id ? selectedItem : null}
+        lead={selectedItem && !selectedItem.enquiry_id ? selectedItem : null}
+        outcome={outcomes.find((o) => o.enquiry_id === (selectedItem?.enquiry_id || selectedItem?.enquiryId))}
         isOpen={isDrawerOpen}
         onClose={() => setIsDrawerOpen(false)}
-        onCallLead={handleCallLead}
       />
 
-      {/* Large Premium Call Experience Modal */}
-      <CallModal
-        lead={selectedLead}
-        isOpen={isCallModalOpen}
-        onClose={() => setIsCallModalOpen(false)}
-        spreadsheetId={spreadsheetId}
-        tab={tab}
-        agencyName={agencyName}
-        onLeadUpdated={handleLeadUpdatedFromCall}
-        refreshLeads={refreshLeadsSilent}
-      />
-
-      {/* Settings Modal */}
+      {/* Settings Modal (Secondary config) */}
       <SettingsModal
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}
-        sheetUrl={sheetUrl}
-        onSheetUrlChange={setSheetUrl}
-        tab={tab}
-        onTabChange={setTab}
+        sheetUrl={`https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit`}
+        onSheetUrlChange={() => {}}
+        tab="Enquiries"
+        onTabChange={() => {}}
         agencyName={agencyName}
         onAgencyNameChange={setAgencyName}
-        onTestConnection={handleTestConnection}
-        isTesting={isTestingConnection}
-        connectionStatus={connectionStatus}
-        connectionError={connectionError}
+        onTestConnection={() => loadDashboardData(false)}
+        isTesting={isRefreshing}
+        connectionStatus={connectionStatus === "connected" ? "connected" : connectionStatus === "error" ? "error" : "idle"}
+        connectionError={connectionError || ""}
       />
     </div>
   );

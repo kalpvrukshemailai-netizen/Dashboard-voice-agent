@@ -1,12 +1,17 @@
 /**
- * HSK Builder Group AI Calling Platform
- * Google Apps Script Backend (Version 1 - Production Hardened)
+ * ============================================================================
+ * HSK Builder Group AI Calling Platform & Real Estate Web Backend
+ * Google Apps Script Backend (Version 1 — Production Hardened & Unified)
+ *
+ * Dedicated Spreadsheet:
+ * https://docs.google.com/spreadsheets/d/1a4sfmK6faPs9QR3-_0fQzksn49epumoTbzwas2tnfv8/edit
  *
  * System of Record: Google Spreadsheet with 4 Tabs:
- * 1. Enquiries
- * 2. Call_Outcomes
- * 3. Webhook_Events
- * 4. System_State
+ * 1. Enquiries       (gid: 0)
+ * 2. Call_Outcomes  (gid: 1001)
+ * 3. Webhook_Events (gid: 1002)
+ * 4. System_State   (gid: 1003)
+ * ============================================================================
  */
 
 // Global Constants & Sheet Tab Names
@@ -17,6 +22,15 @@ var TABS = {
   SYSTEM_STATE: "System_State"
 };
 
+// Global Configuration
+var CONFIG = {
+  DEFAULT_SPREADSHEET_ID: "1a4sfmK6faPs9QR3-_0fQzksn49epumoTbzwas2tnfv8",
+  TIMEZONE: "Asia/Kolkata", // Indian Standard Time (UTC+05:30)
+  LOCK_TIMEOUT_MS: 10000,
+  ALLOW_PUBLIC_ENQUIRIES: true // Permits public website inquiries without client-side secret exposure
+};
+
+// Canonical Sheet Header Schemas (Supports both 18-col and 21-col variants dynamically)
 var HEADERS = {
   ENQUIRIES_21: [
     "enquiry_id", "created_at", "customer_name", "phone_number",
@@ -89,24 +103,46 @@ function getSharedSecret() {
   return PropertiesService.getScriptProperties().getProperty("HSK_SHARED_SECRET") || "";
 }
 
-function verifyAuthorization(payload, parameter) {
-  var configuredSecret = getSharedSecret();
-  // If no secret configured in ScriptProperties, log warning in non-prod
-  if (!configuredSecret) {
-    return true; // allows initial bootstrap before ScriptProperties are populated
+/**
+ * Verifies authorization for protected actions.
+ * Public enquiry submissions from the website frontend are permitted without exposing secrets.
+ */
+function verifyAuthorization(payload, parameter, action, e) {
+  // Public actions do not require server secret if public submissions are permitted
+  var isPublicAction = (action === "createEnquiry" || action === "create_enquiry" || action === "submit_enquiry" || action === "new_enquiry" || action === "health" || action === "ping");
+  if (isPublicAction && CONFIG.ALLOW_PUBLIC_ENQUIRIES) {
+    return true;
   }
-  var provided = (payload && (payload.shared_secret || payload.secret)) || (parameter && (parameter.shared_secret || parameter.secret));
+
+  var configuredSecret = getSharedSecret();
+  // If no secret configured in ScriptProperties, allow initial setup
+  if (!configuredSecret) {
+    return true;
+  }
+
+  var provided = (payload && (payload.shared_secret || payload.secret || payload.auth_token)) ||
+                 (parameter && (parameter.shared_secret || parameter.secret || parameter.auth_token));
+
+  // Also check request headers (e.g. x-hsk-secret or Authorization)
+  if (!provided && e && e.headers) {
+    provided = e.headers["x-hsk-secret"] || e.headers["X-HSK-Secret"] || e.headers["authorization"] || e.headers["Authorization"];
+    if (provided && provided.toLowerCase().indexOf("bearer ") === 0) {
+      provided = provided.substring(7);
+    }
+  }
+
   return provided === configuredSecret;
 }
 
 /**
  * HTTP Entrypoint: POST
+ * Handles action dispatching for Website Backend, 11Labs Outbound Caller, and Operational Dashboard
  */
 function doPost(e) {
   var lock = LockService.getScriptLock();
   try {
     // Wait up to 10 seconds for lock
-    if (!lock.tryLock(10000)) {
+    if (!lock.tryLock(CONFIG.LOCK_TIMEOUT_MS)) {
       return jsonResponse({ success: false, error: "Server busy: Could not acquire script lock" }, 503);
     }
 
@@ -115,17 +151,33 @@ function doPost(e) {
       try {
         payload = JSON.parse(e.postData.contents);
       } catch (err) {
-        return jsonResponse({ success: false, error: "Invalid JSON payload" }, 400);
+        // Fallback for form-encoded payload
+        if (e.parameter) {
+          payload = e.parameter;
+        } else {
+          return jsonResponse({ success: false, error: "Invalid JSON payload" }, 400);
+        }
       }
+    } else if (e && e.parameter) {
+      payload = e.parameter;
+    }
+
+    var action = normalizeActionName(payload.action || (e && e.parameter ? e.parameter.action : ""));
+
+    // Default to createEnquiry if lead fields are present without an explicit action
+    if (!action && (payload.customer_name || payload.name || payload.phone_number || payload.phone || payload.enquiry)) {
+      action = "createEnquiry";
+    }
+    if (!action) {
+      action = "health";
     }
 
     // 1. Authenticate Request
-    if (!verifyAuthorization(payload, null)) {
+    if (!verifyAuthorization(payload, e ? e.parameter : null, action, e)) {
       return jsonResponse({ success: false, error: "Unauthorized: Invalid or missing shared secret" }, 401);
     }
 
-    var action = payload.action || "health";
-    var ss = getSpreadsheet(payload.spreadsheetId);
+    var ss = getSpreadsheet(payload.spreadsheetId || (e && e.parameter ? e.parameter.spreadsheetId : null));
 
     var result;
     switch (action) {
@@ -134,6 +186,12 @@ function doPost(e) {
         break;
       case "getEnquiries":
         result = handleGetEnquiries(ss, payload);
+        break;
+      case "getCallOutcomes":
+        result = handleGetCallOutcomes(ss, payload);
+        break;
+      case "getWebhookEvents":
+        result = handleGetWebhookEvents(ss, payload);
         break;
       case "createEnquiry":
         result = handleCreateEnquiry(ss, payload);
@@ -156,8 +214,20 @@ function doPost(e) {
       case "getSystemState":
         result = handleGetSystemState(ss);
         break;
+      case "updateSystemState":
+        result = handleUpdateSystemState(ss, payload);
+        break;
       case "reconcileStaleLocks":
         result = handleReconcileStaleLocks(ss, payload);
+        break;
+      case "health":
+        result = {
+          success: true,
+          service: "HSK Builder Group AI Calling & Real Estate Backend",
+          version: "1.2.0",
+          calling_window_open: isCallingWindowOpen(),
+          timestamp: new Date().toISOString()
+        };
         break;
       default:
         result = { success: false, error: "Unknown action: " + action };
@@ -166,13 +236,16 @@ function doPost(e) {
 
     return jsonResponse(result);
   } catch (error) {
+    Logger.log("Error in doPost: " + error.toString() + " Stack: " + error.stack);
     return jsonResponse({
       success: false,
       error: error.message || String(error),
       stack: error.stack
     }, 500);
   } finally {
-    lock.releaseLock();
+    try {
+      lock.releaseLock();
+    } catch (ignored) {}
   }
 }
 
@@ -181,21 +254,39 @@ function doPost(e) {
  */
 function doGet(e) {
   try {
+    var params = (e && e.parameter) ? e.parameter : {};
+    var action = normalizeActionName(params.action || "health");
+
     // Authenticate GET requests if parameter contains commands or queries
-    if (!verifyAuthorization(null, e && e.parameter)) {
+    if (!verifyAuthorization(null, params, action, e)) {
       return jsonResponse({ success: false, error: "Unauthorized: Invalid or missing shared secret" }, 401);
     }
 
-    var ss = getSpreadsheet(e && e.parameter ? e.parameter.spreadsheetId : null);
+    var ss = getSpreadsheet(params.spreadsheetId);
     var systemState = handleGetSystemState(ss);
     var isWindowOpen = isCallingWindowOpen();
+
+    if (action === "getEnquiries") {
+      var enquiriesResult = handleGetEnquiries(ss, params);
+      return jsonResponse(enquiriesResult);
+    }
+
+    if (action === "getCallOutcomes") {
+      var outcomesResult = handleGetCallOutcomes(ss, params);
+      return jsonResponse(outcomesResult);
+    }
+
+    if (action === "getSystemState") {
+      return jsonResponse(systemState);
+    }
 
     return jsonResponse({
       success: true,
       service: "HSK Builder Group AI Calling Backend",
-      version: "1.1.0",
+      version: "1.2.0",
       calling_window_open: isWindowOpen,
       system_state: systemState.data,
+      spreadsheet_id: ss.getId(),
       timestamp: new Date().toISOString()
     });
   } catch (err) {
@@ -203,20 +294,86 @@ function doGet(e) {
   }
 }
 
+/**
+ * Preflight CORS OPTIONS handler
+ */
+function doOptions(e) {
+  return jsonResponse({ success: true });
+}
+
+/**
+ * Normalizes action names to support both camelCase and snake_case variants
+ */
+function normalizeActionName(action) {
+  if (!action) return "";
+  var cleaned = String(action).trim();
+  var map = {
+    "initializetabs": "initializeTabs",
+    "initialize_tabs": "initializeTabs",
+    "getenquiries": "getEnquiries",
+    "get_enquiries": "getEnquiries",
+    "read_enquiries": "getEnquiries",
+    "list_enquiries": "getEnquiries",
+    "getcalloutcomes": "getCallOutcomes",
+    "get_call_outcomes": "getCallOutcomes",
+    "list_call_outcomes": "getCallOutcomes",
+    "getwebhookevents": "getWebhookEvents",
+    "get_webhook_events": "getWebhookEvents",
+    "createenquiry": "createEnquiry",
+    "create_enquiry": "createEnquiry",
+    "submitenquiry": "createEnquiry",
+    "submit_enquiry": "createEnquiry",
+    "new_enquiry": "createEnquiry",
+    "claimnextenquiry": "claimNextEnquiry",
+    "claim_next_enquiry": "claimNextEnquiry",
+    "claim_queue_item": "claimNextEnquiry",
+    "claim_enquiry": "claimNextEnquiry",
+    "recordoutcome": "recordOutcome",
+    "record_outcome": "recordOutcome",
+    "log_outcome": "recordOutcome",
+    "recordwebhookevent": "recordWebhookEvent",
+    "record_webhook_event": "recordWebhookEvent",
+    "webhook_event": "recordWebhookEvent",
+    "acquiredialerlock": "acquireDialerLock",
+    "acquire_dialer_lock": "acquireDialerLock",
+    "releasedialerlock": "releaseDialerLock",
+    "release_dialer_lock": "releaseDialerLock",
+    "release_claim": "releaseDialerLock",
+    "getsystemstate": "getSystemState",
+    "get_system_state": "getSystemState",
+    "updatesystemstate": "updateSystemState",
+    "update_system_state": "updateSystemState",
+    "reconcilestalelocks": "reconcileStaleLocks",
+    "reconcile_stale_locks": "reconcileStaleLocks",
+    "health": "health",
+    "ping": "health"
+  };
+  return map[cleaned.toLowerCase()] || cleaned;
+}
+
 // -------------------------------------------------------------
 // Spreadsheet and Tab Management
 // -------------------------------------------------------------
 
 function getSpreadsheet(spreadsheetId) {
-  var id = spreadsheetId || PropertiesService.getScriptProperties().getProperty("GOOGLE_SPREADSHEET_ID");
+  var id = spreadsheetId ||
+           PropertiesService.getScriptProperties().getProperty("GOOGLE_SPREADSHEET_ID") ||
+           PropertiesService.getScriptProperties().getProperty("SPREADSHEET_ID") ||
+           CONFIG.DEFAULT_SPREADSHEET_ID;
+
   if (id && String(id).trim().length > 0) {
-    return SpreadsheetApp.openById(String(id).trim());
+    try {
+      return SpreadsheetApp.openById(String(id).trim());
+    } catch (e) {
+      Logger.log("openById failed for " + id + ": " + e.message + ". Falling back to active spreadsheet.");
+    }
   }
+
   var active = SpreadsheetApp.getActiveSpreadsheet();
   if (active) {
     return active;
   }
-  throw new Error("No Google Spreadsheet configured. Set GOOGLE_SPREADSHEET_ID in ScriptProperties or pass spreadsheetId in request payload.");
+  throw new Error("No Google Spreadsheet configured. Set GOOGLE_SPREADSHEET_ID in ScriptProperties or verify spreadsheet permissions.");
 }
 
 function handleInitializeTabs(ss) {
@@ -226,7 +383,7 @@ function handleInitializeTabs(ss) {
   for (var tabKey in TABS) {
     var tabName = TABS[tabKey];
     var sheet = ss.getSheetByName(tabName);
-    var expectedHeaders = HEADERS[tabKey];
+    var expectedHeaders = HEADERS[tabKey] || HEADERS[tabKey + "_SPREADSHEET"] || HEADERS.ENQUIRIES_18;
 
     if (!sheet) {
       sheet = ss.insertSheet(tabName);
@@ -274,9 +431,22 @@ function handleInitializeTabs(ss) {
 
 function isCallingWindowOpen(date) {
   var d = date || new Date();
-  var istHourString = Utilities.formatDate(d, "Asia/Kolkata", "HH");
+  var istHourString = Utilities.formatDate(d, CONFIG.TIMEZONE, "HH");
   var hour = parseInt(istHourString, 10);
   return hour >= CALLING_HOURS.START_HOUR_IST && hour < CALLING_HOURS.END_HOUR_IST;
+}
+
+function getNextCallingWindowStartIso() {
+  var now = new Date();
+  var istDateStr = Utilities.formatDate(now, CONFIG.TIMEZONE, "yyyy-MM-dd'T'HH:mm:ss");
+  var hour = parseInt(istDateStr.substring(11, 13), 10);
+
+  // If before 9 AM today, schedule for today at 9 AM; otherwise next morning
+  var targetDayOffset = (hour < CALLING_HOURS.START_HOUR_IST) ? 0 : 1;
+  var targetDate = new Date(now.getTime() + (targetDayOffset * 24 * 60 * 60 * 1000));
+  var datePrefix = Utilities.formatDate(targetDate, CONFIG.TIMEZONE, "yyyy-MM-dd");
+
+  return datePrefix + "T09:00:00+05:30";
 }
 
 // -------------------------------------------------------------
@@ -324,6 +494,89 @@ function handleGetEnquiries(ss, payload) {
   };
 }
 
+/**
+ * Retrieves Call Outcomes from the Call_Outcomes tab
+ */
+function handleGetCallOutcomes(ss, payload) {
+  var sheet = ss.getSheetByName(TABS.CALL_OUTCOMES);
+  if (!sheet) {
+    return { success: true, count: 0, outcomes: [] };
+  }
+
+  var data = sheet.getDataRange().getValues();
+  if (data.length <= 1) {
+    return { success: true, count: 0, outcomes: [] };
+  }
+
+  var headers = data[0];
+  var outcomes = [];
+  var limit = payload && payload.limit ? Number(payload.limit) : 100;
+  var enquiryId = payload && payload.enquiry_id ? String(payload.enquiry_id).trim() : "";
+
+  for (var i = 1; i < data.length; i++) {
+    var row = data[i];
+    if (!row[0]) continue;
+
+    var record = {};
+    for (var h = 0; h < headers.length; h++) {
+      record[headers[h]] = row[h];
+    }
+
+    if (enquiryId && record.enquiry_id !== enquiryId) {
+      continue;
+    }
+
+    outcomes.push(record);
+  }
+
+  return {
+    success: true,
+    count: outcomes.length,
+    outcomes: outcomes.slice(0, limit)
+  };
+}
+
+/**
+ * Retrieves logged webhook events from the Webhook_Events tab
+ */
+function handleGetWebhookEvents(ss, payload) {
+  var sheet = ss.getSheetByName(TABS.WEBHOOK_EVENTS);
+  if (!sheet) {
+    return { success: true, count: 0, events: [] };
+  }
+
+  var data = sheet.getDataRange().getValues();
+  if (data.length <= 1) {
+    return { success: true, count: 0, events: [] };
+  }
+
+  var headers = data[0];
+  var events = [];
+  var limit = payload && payload.limit ? Number(payload.limit) : 100;
+
+  for (var i = 1; i < data.length; i++) {
+    var row = data[i];
+    if (!row[0]) continue;
+
+    var record = {};
+    for (var h = 0; h < headers.length; h++) {
+      record[headers[h]] = row[h];
+    }
+    events.push(record);
+  }
+
+  return {
+    success: true,
+    count: events.length,
+    events: events.slice(0, limit)
+  };
+}
+
+/**
+ * Creates an enquiry record.
+ * Supports Website form contract (name, phone, email, propertyId, preferredDate)
+ * and direct API contracts (customer_name, phone_number, project_interest, etc.).
+ */
 function handleCreateEnquiry(ss, payload) {
   var sheet = ss.getSheetByName(TABS.ENQUIRIES);
   if (!sheet) {
@@ -331,38 +584,73 @@ function handleCreateEnquiry(ss, payload) {
     sheet = ss.getSheetByName(TABS.ENQUIRIES);
   }
 
-  var enquiry = payload.enquiry || payload;
-  if (!enquiry.customer_name || !enquiry.phone_number) {
-    return { success: false, error: "customer_name and phone_number are required" };
+  var raw = payload.enquiry || payload.data || payload;
+
+  // Field extraction with camelCase & snake_case compatibility
+  var customerName = raw.customer_name || raw.name || raw.fullName || "";
+  var phoneNumber = raw.phone_number || raw.phone || raw.mobile || "";
+  var email = raw.email || "";
+  var projectInterest = raw.project_interest || raw.propertyId || raw.property_interest || raw.property || "General";
+  var preferredDate = raw.preferredDate || raw.preferred_date || raw.visitDate || "";
+
+  if (!customerName || !phoneNumber) {
+    return { success: false, error: "customer_name (or name) and phone_number (or phone) are required" };
   }
 
-  var cleanPhone = normalizePhoneNumber(enquiry.phone_number);
-  var now = new Date().toISOString();
+  var cleanPhone = normalizePhoneNumber(phoneNumber);
+  var nowIso = raw.created_at || new Date().toISOString();
 
-  // Check for existing pending/active enquiry with same phone to avoid duplicates
+  // Supplementary Customer Notes compilation
+  var notes = raw.customer_notes || raw.notes || "";
+  var extraDetails = [];
+  if (email) extraDetails.push("Email: " + email);
+  if (preferredDate) extraDetails.push("Preferred Visit: " + preferredDate);
+  if (raw.consent !== undefined) extraDetails.push("Consent: " + (raw.consent ? "YES" : "NO"));
+
+  if (extraDetails.length > 0) {
+    notes = notes ? (notes + " | " + extraDetails.join(" | ")) : extraDetails.join(" | ");
+  }
+
+  // Check for existing pending/active enquiry with same phone or same enquiry_id to avoid duplicates
   var data = sheet.getDataRange().getValues();
   var headers = data[0];
   var phoneIdx = headers.indexOf("phone_number");
   var statusIdx = headers.indexOf("current_status");
   var idIdx = headers.indexOf("enquiry_id");
 
+  var incomingId = raw.enquiry_id || raw.id || "";
+
   for (var i = 1; i < data.length; i++) {
-    var existingPhone = data[i][phoneIdx];
-    var existingStatus = data[i][statusIdx];
-    if (existingPhone === cleanPhone && (existingStatus === "NEW" || existingStatus === "QUEUED" || existingStatus === "CALLING" || existingStatus === "RETRY_SCHEDULED")) {
+    var existingId = idIdx !== -1 ? String(data[i][idIdx]).trim() : "";
+    var existingPhone = phoneIdx !== -1 ? String(data[i][phoneIdx]).trim() : "";
+    var existingStatus = statusIdx !== -1 ? String(data[i][statusIdx]).trim() : "";
+
+    // 1. Exact ID duplicate
+    if (incomingId && existingId === incomingId) {
+      return {
+        success: true,
+        is_duplicate: true,
+        message: "Enquiry already exists with this enquiry_id (idempotent)",
+        enquiry_id: existingId
+      };
+    }
+
+    // 2. Active lead with same phone
+    if (existingPhone === cleanPhone && (existingStatus === "NEW" || existingStatus === "QUEUED" || existingStatus === "CALLING" || existingStatus === "PENDING_CALL" || existingStatus === "RETRY_SCHEDULED")) {
       return {
         success: true,
         is_duplicate: true,
         message: "Enquiry already queued/active for this phone number",
-        enquiry_id: data[i][idIdx]
+        enquiry_id: existingId || data[i][0]
       };
     }
   }
 
-  var enquiryId = enquiry.enquiry_id || generateEnquiryId(data.length);
+  var enquiryId = incomingId || generateEnquiryId(data.length);
   var inWindow = isCallingWindowOpen();
-  var queueClass = inWindow ? "FRESH" : "BACKLOG";
-  var currentStatus = "QUEUED";
+  var queueClass = raw.queue_class || (inWindow ? "FRESH" : "BACKLOG");
+  var currentStatus = inWindow ? "PENDING_CALL" : "QUEUED";
+  var nextRetryAt = inWindow ? "" : getNextCallingWindowStartIso();
 
   var colMap = {};
   for (var h = 0; h < headers.length; h++) {
@@ -378,24 +666,24 @@ function handleCreateEnquiry(ss, payload) {
   };
 
   setVal("enquiry_id", enquiryId);
-  setVal("created_at", now);
-  setVal("customer_name", enquiry.customer_name.trim());
+  setVal("created_at", nowIso);
+  setVal("customer_name", customerName.trim());
   setVal("phone_number", cleanPhone);
-  setVal("project_interest", (enquiry.project_interest || "General").trim());
-  setVal("source", (enquiry.source || "Website").trim());
-  setVal("utm_campaign", (enquiry.utm_campaign || "").trim());
-  setVal("customer_notes", (enquiry.customer_notes || "").trim());
+  setVal("project_interest", projectInterest.trim());
+  setVal("source", (raw.source || "hsk-website").trim());
+  setVal("utm_campaign", (raw.utm_campaign || raw.campaign || "direct-web").trim());
+  setVal("customer_notes", notes.trim());
   setVal("queue_class", queueClass);
   setVal("current_status", currentStatus);
   setVal("attempt_sequence_count", 0);
   setVal("customer_no_answer_count", 0);
   setVal("technical_failures_count", 0);
   setVal("last_call_at", "");
-  setVal("next_retry_at", "");
+  setVal("next_retry_at", nextRetryAt);
   setVal("latest_disposition", "");
   setVal("qualification_status", "");
   setVal("active_session_id", "");
-  setVal("assigned_agent", enquiry.assigned_agent || "");
+  setVal("assigned_agent", raw.assigned_agent || "");
   setVal("latest_outcome_id", "");
   setVal("error_details", "");
 
@@ -406,7 +694,8 @@ function handleCreateEnquiry(ss, payload) {
     enquiry_id: enquiryId,
     queue_class: queueClass,
     current_status: currentStatus,
-    in_calling_window: inWindow
+    in_calling_window: inWindow,
+    next_retry_at: nextRetryAt
   };
 }
 
@@ -416,12 +705,13 @@ function handleCreateEnquiry(ss, payload) {
 
 function handleClaimNextEnquiry(ss, payload) {
   // 1. Calling Window Check
-  if (!isCallingWindowOpen()) {
+  if (!isCallingWindowOpen() && !(payload && payload.bypass_calling_window)) {
     return {
       success: true,
       claimed: false,
       reason: "CALLING_WINDOW_CLOSED",
-      message: "Outside 9:00 AM - 10:00 PM IST calling window"
+      message: "Outside 9:00 AM - 10:00 PM IST calling window",
+      next_window_start: getNextCallingWindowStartIso()
     };
   }
 
@@ -484,7 +774,7 @@ function handleClaimNextEnquiry(ss, payload) {
     var createdAt = row[colMap["created_at"]];
 
     // Exclude terminal / suppressed states
-    if (status === "DO_NOT_CALL" || status === "QUALIFIED" || status === "DISQUALIFIED" || status === "NOT_ANSWERED" || status === "CALLING" || status === "FAILED_TECHNICAL") {
+    if (status === "DO_NOT_CALL" || status === "QUALIFIED" || status === "DISQUALIFIED" || status === "NOT_ANSWERED" || status === "CALLING" || status === "DIALING" || status === "FAILED_TECHNICAL" || status === "CONVERTED_INTERESTED" || status === "CLOSED_NOT_INTERESTED" || status === "EXHAUSTED_NO_ANSWER") {
       continue;
     }
     if (noAnswerCount >= 3) {
@@ -504,16 +794,16 @@ function handleClaimNextEnquiry(ss, payload) {
       technical_failures_count: techFailCount
     };
 
-    // Priority 1: Fresh enquiries (NEW or QUEUED with FRESH)
-    if ((status === "NEW" || status === "QUEUED") && qClass === "FRESH") {
+    // Priority 1: Fresh enquiries (NEW or QUEUED or PENDING_CALL with FRESH)
+    if ((status === "NEW" || status === "QUEUED" || status === "PENDING_CALL") && (qClass === "FRESH" || !qClass || qClass === "NEW")) {
       freshCandidates.push(item);
     }
-    // Priority 2: Due retries (RETRY_SCHEDULED where next_retry_at <= now)
-    else if (status === "RETRY_SCHEDULED" && nextRetryAt && nextRetryAt <= nowIso) {
+    // Priority 2: Due retries (RETRY_SCHEDULED or PENDING_CALL with next_retry_at <= now)
+    else if ((status === "RETRY_SCHEDULED" || status === "PENDING_CALL") && nextRetryAt && nextRetryAt <= nowIso) {
       retryCandidates.push(item);
     }
     // Priority 3: Overnight backlog (QUEUED with BACKLOG)
-    else if (status === "QUEUED" && qClass === "BACKLOG") {
+    else if ((status === "QUEUED" || status === "PENDING_CALL") && qClass === "BACKLOG") {
       backlogCandidates.push(item);
     }
   }
@@ -551,7 +841,9 @@ function handleClaimNextEnquiry(ss, payload) {
 
   // Update enquiry row
   enqSheet.getRange(selected.rowIndex, colMap["current_status"] + 1).setValue("CALLING");
-  enqSheet.getRange(selected.rowIndex, colMap["active_session_id"] + 1).setValue(sessionId);
+  if (colMap["active_session_id"] !== undefined) {
+    enqSheet.getRange(selected.rowIndex, colMap["active_session_id"] + 1).setValue(sessionId);
+  }
   enqSheet.getRange(selected.rowIndex, colMap["attempt_sequence_count"] + 1).setValue(newAttemptSeq);
   enqSheet.getRange(selected.rowIndex, colMap["last_call_at"] + 1).setValue(nowIso);
 
@@ -636,7 +928,7 @@ function handleRecordOutcome(ss, payload) {
 
   var now = new Date();
   var nowIso = now.toISOString();
-  var disposition = (outcome.call_disposition || "UNKNOWN").toUpperCase();
+  var disposition = (outcome.call_disposition || outcome.disposition || "UNKNOWN").toUpperCase();
   var dndRequested = outcome.dnd_requested === true || outcome.dnd_requested === "true";
 
   var currentNoAnswer = Number(enqData[targetRow - 1][colMap["customer_no_answer_count"]] || 0);
@@ -653,19 +945,23 @@ function handleRecordOutcome(ss, payload) {
     qualStatus = "DND";
     newQueueClass = "NONE";
   } else if (disposition === "BUSY" || disposition === "NO_ANSWER") {
-    // Customer no-answer policy: 2 min retry, max 3 attempts
+    // Customer no-answer policy: 2 min retry (or scheduled morning if outside window), max 3 attempts
     currentNoAnswer += 1;
     if (currentNoAnswer < 3) {
       newStatus = "RETRY_SCHEDULED";
       newQueueClass = "RETRY";
       var retryTime = new Date(now.getTime() + 2 * 60 * 1000);
-      nextRetryIso = retryTime.toISOString();
+      if (isCallingWindowOpen(retryTime)) {
+        nextRetryIso = retryTime.toISOString();
+      } else {
+        nextRetryIso = getNextCallingWindowStartIso();
+      }
     } else {
       newStatus = "NOT_ANSWERED";
       newQueueClass = "NONE";
       qualStatus = "UNREACHED";
     }
-  } else if (disposition === "FAILED_TECH") {
+  } else if (disposition === "FAILED_TECH" || disposition === "FAILED" || disposition === "TECHNICAL_FAILURE") {
     // Technical failure policy: isolated counter; automatic retry disabled by default until explicitly configured
     currentTechFail += 1;
     var autoTechRetryEnabled = outcome.auto_technical_retries_enabled === true;
@@ -688,8 +984,14 @@ function handleRecordOutcome(ss, payload) {
         timestamp: nowIso
       }, "RECORD_OUTCOME");
     }
-  } else if (disposition === "ANSWERED") {
-    newStatus = outcome.interested ? "QUALIFIED" : "DISQUALIFIED";
+  } else if (disposition === "ANSWERED" || disposition === "COMPLETED" || disposition === "INTERESTED" || disposition === "NOT_INTERESTED") {
+    if (outcome.interested === true || disposition === "INTERESTED") {
+      newStatus = "QUALIFIED";
+      qualStatus = "INTERESTED";
+    } else {
+      newStatus = "DISQUALIFIED";
+      qualStatus = "NOT_INTERESTED";
+    }
     newQueueClass = "NONE";
   }
 
@@ -730,7 +1032,7 @@ function handleRecordOutcome(ss, payload) {
   setOutcomeCol(["enquiry_id"], outcome.enquiry_id);
   setOutcomeCol(["attempt_sequence"], outcome.attempt_sequence || 1);
   setOutcomeCol(["customer_attempt_number"], outcome.customer_attempt_number || (disposition === "BUSY" || disposition === "NO_ANSWER" ? currentNoAnswer : ""));
-  setOutcomeCol(["channel"], outcome.channel || "EXOTEL_PSTN");
+  setOutcomeCol(["channel"], outcome.channel || "elevenlabs-voice");
   setOutcomeCol(["call_sid"], outcome.call_sid || "");
   setOutcomeCol(["conversation_id"], outcome.conversation_id || "");
   setOutcomeCol(["call_start_time", "call_started_at"], outcome.call_start_time || outcome.call_started_at || nowIso);
@@ -747,7 +1049,7 @@ function handleRecordOutcome(ss, payload) {
   setOutcomeCol(["qualification_summary", "interest_reason"], outcome.qualification_summary || outcome.interest_reason || "");
   setOutcomeCol(["qualification_status", "interest_status"], qualStatus);
   setOutcomeCol(["recording_url"], outcome.recording_url || "");
-  setOutcomeCol(["transcript_summary"], outcome.transcript_summary || "");
+  setOutcomeCol(["transcript_summary"], outcome.transcript_summary || outcome.summary || "");
   setOutcomeCol(["recorded_at"], nowIso);
 
   outcomesSheet.appendRow(outcomeRow);
@@ -913,6 +1215,25 @@ function handleGetSystemState(ss) {
   return { success: true, data: state };
 }
 
+function handleUpdateSystemState(ss, payload) {
+  var key = payload.state_key || payload.key;
+  var value = payload.state_value || payload.value;
+  var actor = payload.actor || payload.updated_by || "SYSTEM";
+
+  if (!key) {
+    return { success: false, error: "state_key is required" };
+  }
+
+  var stateSheet = ss.getSheetByName(TABS.SYSTEM_STATE);
+  if (!stateSheet) {
+    handleInitializeTabs(ss);
+    stateSheet = ss.getSheetByName(TABS.SYSTEM_STATE);
+  }
+
+  setSystemStateValue(stateSheet, key, value, actor);
+  return { success: true, message: "System state updated", key: key, value: value };
+}
+
 function handleReconcileStaleLocks(ss, payload) {
   var stateSheet = ss.getSheetByName(TABS.SYSTEM_STATE);
   var current = getSystemStateValue(stateSheet, "DIALER_LOCK");
@@ -996,12 +1317,14 @@ function setSystemStateValue(sheet, key, value, updatedBy) {
       sheet.getRange(i + 1, 2).setValue(stringVal);
       sheet.getRange(i + 1, 3).setValue(nowIso);
       sheet.getRange(i + 1, 4).setValue(by);
+      SpreadsheetApp.flush();
       return;
     }
   }
 
   // Key not found: append new row
   sheet.appendRow([key, stringVal, nowIso, by, ""]);
+  SpreadsheetApp.flush();
 }
 
 // -------------------------------------------------------------

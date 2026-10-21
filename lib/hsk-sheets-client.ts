@@ -98,6 +98,10 @@ export class HskSheetsClient {
         return hskSheetsTestDouble.reconcileStaleLocks(payload as any);
       case "getSystemState":
         return hskSheetsTestDouble.getSystemState(payload.shared_secret as string);
+      case "getCallOutcomes":
+        return hskSheetsTestDouble.getCallOutcomes(payload as any);
+      case "getWebhookEvents":
+        return hskSheetsTestDouble.getWebhookEvents(payload as any);
       default:
         throw new Error(`Unknown action on test double: ${action}`);
     }
@@ -109,6 +113,14 @@ export class HskSheetsClient {
 
   public async getEnquiries(options?: { status?: string; queue_class?: string; limit?: number }) {
     return this.execute("getEnquiries", options || {});
+  }
+
+  public async getCallOutcomes(options?: { enquiry_id?: string; limit?: number }) {
+    return this.execute("getCallOutcomes", options || {});
+  }
+
+  public async getWebhookEvents(options?: { limit?: number }) {
+    return this.execute("getWebhookEvents", options || {});
   }
 
   public async createEnquiry(enquiry: Partial<EnquiryRecord> & { customer_name: string; phone_number: string }) {

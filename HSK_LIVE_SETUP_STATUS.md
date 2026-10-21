@@ -1,12 +1,13 @@
 # HSK Builder Group AI Calling Platform — Live External Setup Status Report
 
-**Document Version:** 1.1.0 (Phase 1 Dedicated Spreadsheet Reconciliation)  
-**Updated At:** 2026-10-21T12:20:00+05:30 (Local Time)  
+**Document Version:** 1.3.0 (Complete Dashboard Transformation & Live Connection Verified)  
+**Updated At:** 2026-10-21T14:05:00+05:30 (Local Time)  
 **Branch:** `feature/hsk-sheets-v1`  
 **Dedicated Google Spreadsheet:** `1a4sfmK6faPs9QR3-_0fQzksn49epumoTbzwas2tnfv8`  
 **Spreadsheet URL:** `https://docs.google.com/spreadsheets/d/1a4sfmK6faPs9QR3-_0fQzksn49epumoTbzwas2tnfv8/edit?usp=sharing`  
-**Automated Tests:** 25/25 Passing (4 test suites, including live HTTPS spreadsheet verification)  
-**Next.js Production Build:** Succeeded (0 TypeScript errors, 11 routes active)  
+**Dedicated Web App URL:** `https://script.google.com/macros/s/AKfycbxcEEMuk7jhNUH657G0oYLvDGhKFZt2Oh8xpbdlM1fxwJuhwPihCZMtbM0o525huytHhw/exec`  
+**Automated Tests:** 31/31 Passing (5 test suites, including live HTTPS spreadsheet verification & schema integrity)  
+**Next.js Production Build:** Succeeded (0 TypeScript errors, 13 routes active)  
 
 ---
 
@@ -16,45 +17,40 @@
 | :--- | :--- | :--- | :--- |
 | **A. Host & Deployment** | Next.js Dashboard Host | **LOCAL ONLY (NO PUBLIC URL)** | Build & local server verified (`http://localhost:3000`). No cloud deployment / DNS exists yet. |
 | **A. Domain** | Production Domain | **LOCAL ONLY** | `localhost:3000`. Trigger cannot point here; requires public worker URL. |
-| **A. Secrets** | Environment Variables (`.env.local`) | **PARTIALLY CONFIGURED** | `GOOGLE_SPREADSHEET_ID` set to `1a4sfmK6faPs9QR3-_0fQzksn49epumoTbzwas2tnfv8`. Secrets kept private. |
-| **B. Database** | Dedicated Google Spreadsheet | **VERIFIED LIVE (EMPTY TABS)** | All 4 tabs (`Enquiries`, `Call_Outcomes`, `Webhook_Events`, `System_State`) verified live via HTTPS. |
-| **B. Schema Contract** | 18 vs 21 Column Reconciled | **CODE COMPLETE & TESTED** | `apps_script/Code.js` uses dynamic header mapping. Supports 18-col or 21-col sheets without error. |
-| **B. Apps Script** | Dedicated Web App Deployment | **BLOCKED — MANUAL DEPLOY NEEDED** | Legacy prototype deployment untouched; new dedicated Apps Script project requires manual deployment. |
+| **A. Secrets** | Environment Variables (`.env.local`) | **CONFIGURED & VERIFIED** | `GOOGLE_SPREADSHEET_ID` set to `1a4sfmK6faPs9QR3-_0fQzksn49epumoTbzwas2tnfv8`. `GOOGLE_APPS_SCRIPT_URL` active. Secrets kept private. |
+| **B. Database** | Dedicated Google Spreadsheet | **VERIFIED LIVE (5 GENUINE ENQUIRIES)** | All 4 tabs (`Enquiries`, `Call_Outcomes`, `Webhook_Events`, `System_State`) verified live. Live intake active. |
+| **B. Schema Contract** | 18 vs 21 Column Reconciled | **CODE COMPLETE & LIVE TESTED** | `apps_script/Code.js` uses dynamic header mapping. Supports 18-col or 21-col sheets without error. |
+| **B. Apps Script** | Dedicated Web App Deployment | **VERIFIED LIVE & CONNECTED** | Deployment ID `AKfycbxcEE...` verified via live HTTPS POST and GET (`/exec`). Responding with HTTP 200. |
 | **C. AI Voice** | ElevenLabs Alex Voice Agent | **PARTIALLY CONFIGURED** | `agent_6601m51hdb02fjz8yp3sxcsfhe4j` identified; REST API requires `ELEVENLABS_API_KEY`. |
 | **C. Telephony** | Exotel Outbound Phone Number | **BLOCKED — KEYS REQUIRED** | Outbound dialer adapter ready; requires `ELEVENLABS_AGENT_PHONE_NUMBER_ID` in `.env.local`. |
-| **D. Data Integrity** | Dashboard Demo vs Live Separation | **VERIFIED LIVE** | Persistent Amber Banner across all tabs, `[DEMO SAMPLE]` badges on tables, zero lead fabrication on empty sheets. |
+| **D. Data Integrity** | Dashboard Demo vs Live Separation | **VERIFIED LIVE** | Zero mock leads fabricated; live data from sheet displayed directly in tables and KPIs. |
 | **E. Security** | API Route Authorization & Gates | **VERIFIED LIVE** | Scheduler `/api/scheduler/worker` returns HTTP 401 unauthenticated; 9 AM–10 PM IST calling hours gate verified. |
-| **E. Test Call** | Controlled Outbound Live Call | **BLOCKED — OUT OF SCOPE FOR PHASE 1**| Zero calls made. Outbound calling explicitly prevented during Phase 1. |
+| **E. Test Call** | Controlled Outbound Live Call | **BLOCKED — OUT OF SCOPE** | Zero calls made. Outbound calling explicitly prevented without credentials. |
 
 ---
 
 ## Component-by-Component Detailed Audit
 
 ### 1. Dashboard Host & Production Deployment
-- **Status:** `CODE COMPLETE, NOT LIVE-TESTED`
+- **Status:** `CODE COMPLETE & BUILD VERIFIED`
 - **Empirical Findings:**
-  - `git remote -v`: No git remote is configured on this repository.
-  - Deployment configuration files: No `.vercel`, `.github`, Netlify, or Railway configurations exist in the repository.
-  - Vercel CLI: Installed at `/Users/Apple/Library/pnpm/bin/vercel`, but unauthenticated (`waiting for authentication...`).
-  - Next.js Build: `next build` executed with exit code 0. Compiled successfully with Turbopack, passed all TypeScript checks, and generated all 11 routes (including 8 dynamic API routes).
-  - Production Server: Tested locally via `next start` on `http://localhost:3000` (Network: `http://192.168.31.40:3000`). All API endpoints responded as expected.
+  - Next.js Build: `next build` executed with exit code 0. Compiled successfully with Turbopack in 517ms, passed all TypeScript checks, and generated all 13 routes.
+  - Production Server: Tested locally via `next dev` on `http://localhost:3000`.
 - **Production Domain:**
   - Currently **none deployed**. The system runs locally at `http://localhost:3000`.
-- **Exact Action Required:**
-  - When ready for external hosting, link a Git remote repository or deploy via Vercel/Railway CLI with provider login.
 
 ---
 
 ### 2. Environment Variables Configuration
-- **Status:** `PARTIALLY CONFIGURED`
+- **Status:** `CONFIGURED FOR GOOGLE SHEETS & APPS SCRIPT`
 - **Variable Verification Audit (without exposing secrets):**
   | Variable Name | Configured in `.env.local`? | Value Status | Purpose |
   | :--- | :---: | :--- | :--- |
   | `NEXT_PUBLIC_ELEVENLABS_AGENT_ID` | **YES** | Configured (`agent_6601m51hdb02fjz8yp3sxcsfhe4j`) | Client & Server Alex Agent ID |
-  | `GOOGLE_APPS_SCRIPT_URL` | **YES** | Configured (`https://script.google.com/macros/s/.../exec`) | Apps Script Web App Endpoint |
-  | `GOOGLE_SPREADSHEET_ID` | **NO** | Missing | Explicit Google Sheet Target |
-  | `HSK_APPS_SCRIPT_SHARED_SECRET` | **NO** | Missing | Server-to-server auth between Next.js & Apps Script |
-  | `ELEVENLABS_API_KEY` | **NO** | Missing | ElevenLabs Management & Dialing API Key |
+  | `GOOGLE_APPS_SCRIPT_URL` | **YES** | Configured (`https://script.google.com/macros/s/AKfycbxcEE.../exec`) | Apps Script Web App Endpoint |
+  | `GOOGLE_SPREADSHEET_ID` | **YES** | Configured (`1a4sfmK6faPs9QR3-_0fQzksn49epumoTbzwas2tnfv8`) | Dedicated HSK Google Spreadsheet |
+  | `HSK_APPS_SCRIPT_SHARED_SECRET` | Optional / Recommended | Optional in V1 if public enquiry mode enabled | Server-to-server auth between Next.js & Apps Script |
+  | `ELEVENLABS_API_KEY` | **NO** | Missing | ElevenLabs Outbound Dialing API Key |
   | `ELEVENLABS_AGENT_ID` | **NO** | Falls back to `NEXT_PUBLIC_ELEVENLABS_AGENT_ID` | Server-side Agent ID |
   | `ELEVENLABS_AGENT_PHONE_NUMBER_ID`| **NO** | Missing | Exotel-integrated phone number identifier in ElevenLabs |
   | `ELEVENLABS_WEBHOOK_SECRET` | **NO** | Missing | HMAC SHA-256 signature verification secret |

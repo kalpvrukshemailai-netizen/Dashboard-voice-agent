@@ -158,7 +158,7 @@ export class HskSheetsTestDouble {
 
     const record: EnquiryRecord = {
       enquiry_id: enquiryId,
-      created_at: now,
+      created_at: payload.created_at || now,
       customer_name: payload.customer_name.trim(),
       phone_number: cleanPhone,
       project_interest: (payload.project_interest || "General").trim(),
@@ -403,7 +403,7 @@ export class HskSheetsTestDouble {
         newStatus = "FAILED_TECHNICAL";
         newQueueClass = "NONE";
       }
-    } else if (disposition === "ANSWERED") {
+    } else if (disposition === "ANSWERED" || disposition === "COMPLETED") {
       newStatus = outcome.interested ? "QUALIFIED" : "DISQUALIFIED";
       newQueueClass = "NONE";
     }
@@ -501,6 +501,37 @@ export class HskSheetsTestDouble {
       success: true,
       event_id: payload.event_id,
       status: eventRecord.processing_status,
+    };
+  }
+
+  public getCallOutcomes(options?: { enquiry_id?: string; limit?: number; shared_secret?: string }) {
+    if (!this.verifyAuth(options?.shared_secret)) {
+      return { success: false, error: "Unauthorized: Invalid or missing shared secret" };
+    }
+    let list = Array.from(this.outcomes.values());
+    if (options?.enquiry_id) {
+      list = list.filter((o) => o.enquiry_id === options.enquiry_id);
+    }
+    list.reverse();
+    const limit = options?.limit || 100;
+    return {
+      success: true,
+      count: list.length,
+      outcomes: list.slice(0, limit),
+    };
+  }
+
+  public getWebhookEvents(options?: { limit?: number; shared_secret?: string }) {
+    if (!this.verifyAuth(options?.shared_secret)) {
+      return { success: false, error: "Unauthorized: Invalid or missing shared secret" };
+    }
+    let list = Array.from(this.webhookEvents.values());
+    list.reverse();
+    const limit = options?.limit || 50;
+    return {
+      success: true,
+      count: list.length,
+      events: list.slice(0, limit),
     };
   }
 

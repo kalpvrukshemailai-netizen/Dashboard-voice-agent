@@ -6,15 +6,17 @@ import {
   Users,
   Megaphone,
   PhoneCall,
-  BarChart3,
+  Clock,
   Settings,
-  AudioWaveform,
   Building2,
   X,
+  Radio,
+  CheckCircle2,
+  AlertCircle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-export type NavTab = "overview" | "leads" | "campaigns" | "calls" | "analytics" | "settings";
+export type NavTab = "overview" | "leads" | "campaigns" | "calls" | "queue" | "analytics" | "settings";
 
 interface SidebarProps {
   activeTab: NavTab;
@@ -22,7 +24,10 @@ interface SidebarProps {
   isOpenMobile: boolean;
   onCloseMobile: () => void;
   leadCount: number;
+  outcomesCount?: number;
   agencyName?: string;
+  isCallingWindowOpen?: boolean;
+  connectionStatus?: "connected" | "error" | "mock";
 }
 
 export function Sidebar({
@@ -31,14 +36,18 @@ export function Sidebar({
   isOpenMobile,
   onCloseMobile,
   leadCount,
+  outcomesCount = 0,
   agencyName = "HSK Builder Group",
+  isCallingWindowOpen = true,
+  connectionStatus = "connected",
 }: SidebarProps) {
   const navItems = [
     { id: "overview" as NavTab, label: "Overview", icon: LayoutDashboard },
-    { id: "leads" as NavTab, label: "Leads", icon: Users, badge: leadCount > 0 ? leadCount : undefined },
-    { id: "campaigns" as NavTab, label: "Campaigns", icon: Megaphone },
-    { id: "calls" as NavTab, label: "Calls", icon: PhoneCall },
-    { id: "analytics" as NavTab, label: "Analytics", icon: BarChart3 },
+    { id: "leads" as NavTab, label: "Enquiries", icon: Users, badge: leadCount > 0 ? leadCount : undefined },
+    { id: "calls" as NavTab, label: "Call Outcomes", icon: PhoneCall, badge: outcomesCount > 0 ? outcomesCount : undefined },
+    { id: "queue" as NavTab, label: "Queue Operations", icon: Radio },
+    { id: "campaigns" as NavTab, label: "Project Portfolios", icon: Building2 },
+    { id: "settings" as NavTab, label: "System Health", icon: Settings },
   ];
 
   const handleSelect = (tab: NavTab) => {
@@ -50,34 +59,37 @@ export function Sidebar({
     <div
       className="flex flex-col h-full select-none"
       style={{
-        width: "var(--sidebar-width, 248px)",
-        background: "var(--brand-navy)",
-        borderRight: "1px solid rgba(255,255,255,0.06)",
+        width: "var(--sidebar-width, 252px)",
+        background: "#0A1120",
+        borderRight: "1px solid rgba(255, 255, 255, 0.08)",
       }}
     >
       {/* ── Brand Header ── */}
       <div
         className="flex items-center justify-between px-5 py-4"
-        style={{ borderBottom: "1px solid rgba(255,255,255,0.07)" }}
+        style={{ borderBottom: "1px solid rgba(255, 255, 255, 0.07)" }}
       >
         <div className="flex items-center gap-3">
-          {/* Brand icon mark */}
+          {/* HSK Emblem Mark */}
           <div
-            className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0"
-            style={{ background: "var(--brand-blue)" }}
+            className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 shadow-md"
+            style={{
+              background: "linear-gradient(135deg, #0F9F8F 0%, #1E3A8A 100%)",
+              border: "1px solid rgba(255, 255, 255, 0.15)",
+            }}
           >
-            <AudioWaveform className="w-[18px] h-[18px] text-white" strokeWidth={1.75} />
+            <Building2 className="w-[19px] h-[19px] text-white" strokeWidth={2} />
           </div>
           {/* Brand text */}
-          <div>
+          <div className="min-w-0">
             <h1
-              className="text-sm font-bold leading-tight tracking-tight text-white"
-              style={{ fontFamily: "'Manrope', sans-serif", fontWeight: 700 }}
+              className="text-[13.5px] font-extrabold leading-tight tracking-tight text-white truncate"
+              style={{ fontFamily: "'Manrope', sans-serif" }}
             >
-              AI Lead Caller
+              HSK BUILDER GROUP
             </h1>
-            <p className="text-[10.5px] font-medium leading-tight" style={{ color: "rgba(255,255,255,0.38)" }}>
-              Real Estate Intelligence
+            <p className="text-[10px] font-medium leading-tight text-slate-400 truncate">
+              AI Calling & Lead Platform
             </p>
           </div>
         </div>
@@ -86,8 +98,7 @@ export function Sidebar({
         {isOpenMobile && (
           <button
             onClick={onCloseMobile}
-            className="p-1 rounded-lg md:hidden transition-colors"
-            style={{ color: "rgba(255,255,255,0.4)" }}
+            className="p-1 rounded-lg md:hidden transition-colors text-slate-400 hover:text-white"
             aria-label="Close navigation"
           >
             <X className="w-5 h-5" />
@@ -99,23 +110,22 @@ export function Sidebar({
       <div className="px-3 pt-3">
         <div
           className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl"
-          style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.08)" }}
+          style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.06)" }}
         >
           <div
             className="w-6 h-6 rounded-lg flex items-center justify-center shrink-0"
-            style={{ background: "rgba(56, 87, 232, 0.35)" }}
+            style={{ background: "rgba(15, 159, 143, 0.2)" }}
           >
-            <Building2 className="w-3.5 h-3.5" style={{ color: "var(--brand-blue)" }} strokeWidth={1.75} />
+            <Radio className="w-3.5 h-3.5 text-teal-400" strokeWidth={2} />
           </div>
-          <div className="min-w-0">
+          <div className="min-w-0 flex-1">
             <span
-              className="block text-[9.5px] font-semibold tracking-wider uppercase"
-              style={{ color: "rgba(255,255,255,0.32)" }}
+              className="block text-[9px] font-semibold tracking-wider uppercase text-slate-400"
             >
               Workspace
             </span>
             <span
-              className="block text-xs font-bold truncate text-white"
+              className="block text-xs font-bold truncate text-slate-200"
               style={{ fontFamily: "'Manrope', sans-serif" }}
             >
               {agencyName.toUpperCase()}
@@ -123,20 +133,21 @@ export function Sidebar({
           </div>
           {/* Online indicator */}
           <span
-            className="w-1.5 h-1.5 rounded-full ml-auto shrink-0"
-            title="Connected"
-            style={{ background: "var(--ai-teal)" }}
+            className={cn(
+              "w-2 h-2 rounded-full shrink-0",
+              connectionStatus === "connected" ? "bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.5)]" : "bg-amber-400",
+            )}
+            title={connectionStatus === "connected" ? "Google Sheet Sync Active" : "Diagnostic Check Needed"}
           />
         </div>
       </div>
 
       {/* ── Main Navigation ── */}
-      <nav className="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto">
+      <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
         <div
-          className="px-2 pb-2.5 text-[10px] font-semibold uppercase tracking-widest"
-          style={{ color: "rgba(255,255,255,0.28)", fontFamily: "'Inter', sans-serif" }}
+          className="px-2 pb-2 text-[10px] font-bold uppercase tracking-widest text-slate-500"
         >
-          Navigation
+          Operations
         </div>
 
         {navItems.map((item) => {
@@ -148,53 +159,37 @@ export function Sidebar({
               key={item.id}
               onClick={() => handleSelect(item.id)}
               className={cn(
-                "w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-[13px] font-medium transition-all",
+                "w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-[13px] font-medium transition-all text-left",
                 "focus-visible:outline-2 focus-visible:outline-offset-2",
+                isActive
+                  ? "text-white bg-white/10 font-semibold shadow-inner"
+                  : "text-slate-400 hover:text-slate-200 hover:bg-white/5",
               )}
               style={{
-                fontFamily: "'Inter', sans-serif",
-                color: isActive ? "#fff" : "rgba(255,255,255,0.52)",
-                background: isActive
-                  ? "rgba(56, 87, 232, 0.22)"
-                  : "transparent",
-                borderLeft: isActive
-                  ? "2px solid var(--brand-blue)"
-                  : "2px solid transparent",
-                transitionDuration: "150ms",
-              }}
-              onMouseEnter={(e) => {
-                if (!isActive) {
-                  (e.currentTarget as HTMLButtonElement).style.background = "rgba(255,255,255,0.06)";
-                  (e.currentTarget as HTMLButtonElement).style.color = "rgba(255,255,255,0.82)";
-                }
-              }}
-              onMouseLeave={(e) => {
-                if (!isActive) {
-                  (e.currentTarget as HTMLButtonElement).style.background = "transparent";
-                  (e.currentTarget as HTMLButtonElement).style.color = "rgba(255,255,255,0.52)";
-                }
+                borderLeft: isActive ? "3px solid #0F9F8F" : "3px solid transparent",
               }}
             >
-              <div className="flex items-center gap-2.5">
+              <div className="flex items-center gap-2.5 min-w-0">
                 <Icon
                   className="shrink-0"
                   style={{
-                    width: 18,
-                    height: 18,
-                    color: isActive ? "var(--brand-blue)" : "rgba(255,255,255,0.38)",
+                    width: 17,
+                    height: 17,
+                    color: isActive ? "#2DD4BF" : "rgba(255,255,255,0.45)",
                   }}
-                  strokeWidth={1.75}
+                  strokeWidth={isActive ? 2.2 : 1.75}
                 />
-                <span>{item.label}</span>
+                <span className="truncate">{item.label}</span>
               </div>
 
               {item.badge !== undefined && (
                 <span
-                  className="px-1.5 py-0.5 rounded-md text-[10px] font-bold tabular-nums"
-                  style={{
-                    background: isActive ? "var(--brand-blue)" : "rgba(255,255,255,0.12)",
-                    color: isActive ? "#fff" : "rgba(255,255,255,0.6)",
-                  }}
+                  className={cn(
+                    "px-1.5 py-0.5 rounded-md text-[10.5px] font-bold tabular-nums ml-1 shrink-0",
+                    isActive
+                      ? "bg-teal-500/20 text-teal-300 border border-teal-500/30"
+                      : "bg-white/10 text-slate-300",
+                  )}
                 >
                   {item.badge}
                 </span>
@@ -204,43 +199,52 @@ export function Sidebar({
         })}
       </nav>
 
-      {/* ── Bottom: Settings ── */}
+      {/* ── Bottom: Calling Window & System Info ── */}
       <div
-        className="p-3"
+        className="p-3 space-y-2"
         style={{ borderTop: "1px solid rgba(255,255,255,0.07)" }}
       >
-        <button
-          onClick={() => handleSelect("settings")}
-          className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-[13px] font-medium transition-all focus-visible:outline-2 focus-visible:outline-offset-2"
+        {/* Calling Window Badge */}
+        <div
+          className="px-3 py-2 rounded-xl text-[11px] flex items-center gap-2"
           style={{
-            fontFamily: "'Inter', sans-serif",
-            color: activeTab === "settings" ? "#fff" : "rgba(255,255,255,0.52)",
-            background: activeTab === "settings" ? "rgba(56, 87, 232, 0.22)" : "transparent",
-            borderLeft: activeTab === "settings" ? "2px solid var(--brand-blue)" : "2px solid transparent",
-            transitionDuration: "150ms",
-          }}
-          onMouseEnter={(e) => {
-            if (activeTab !== "settings") {
-              (e.currentTarget as HTMLButtonElement).style.background = "rgba(255,255,255,0.06)";
-              (e.currentTarget as HTMLButtonElement).style.color = "rgba(255,255,255,0.82)";
-            }
-          }}
-          onMouseLeave={(e) => {
-            if (activeTab !== "settings") {
-              (e.currentTarget as HTMLButtonElement).style.background = "transparent";
-              (e.currentTarget as HTMLButtonElement).style.color = "rgba(255,255,255,0.52)";
-            }
+            background: isCallingWindowOpen ? "rgba(16, 185, 129, 0.08)" : "rgba(245, 158, 11, 0.08)",
+            border: isCallingWindowOpen ? "1px solid rgba(16, 185, 129, 0.2)" : "1px solid rgba(245, 158, 11, 0.2)",
           }}
         >
-          <Settings
-            style={{
-              width: 18,
-              height: 18,
-              color: activeTab === "settings" ? "var(--brand-blue)" : "rgba(255,255,255,0.38)",
-            }}
-            strokeWidth={1.75}
+          <Clock
+            className={cn("w-3.5 h-3.5 shrink-0", isCallingWindowOpen ? "text-emerald-400" : "text-amber-400")}
           />
-          <span>Settings</span>
+          <div className="min-w-0 flex-1 leading-tight">
+            <span
+              className={cn(
+                "font-semibold block",
+                isCallingWindowOpen ? "text-emerald-300" : "text-amber-300",
+              )}
+            >
+              {isCallingWindowOpen ? "Window Open" : "Window Closed"}
+            </span>
+            <span className="text-[10px] text-slate-400 block truncate">
+              9 AM – 10 PM IST
+            </span>
+          </div>
+        </div>
+
+        {/* System Settings Link */}
+        <button
+          onClick={() => handleSelect("settings")}
+          className={cn(
+            "w-full flex items-center justify-between px-3 py-2 rounded-xl text-[12px] font-medium transition-all",
+            activeTab === "settings"
+              ? "text-white bg-white/10 font-semibold"
+              : "text-slate-400 hover:text-slate-200 hover:bg-white/5",
+          )}
+        >
+          <div className="flex items-center gap-2">
+            <Settings className="w-3.5 h-3.5 text-slate-400" />
+            <span>Diagnostics</span>
+          </div>
+          <span className="text-[10px] text-slate-500 font-mono">v1.1.0</span>
         </button>
       </div>
     </div>
@@ -258,7 +262,7 @@ export function Sidebar({
         <div className="fixed inset-0 z-50 md:hidden flex">
           <div
             className="fixed inset-0 backdrop-blur-sm"
-            style={{ background: "rgba(16, 27, 44, 0.6)" }}
+            style={{ background: "rgba(10, 17, 32, 0.75)" }}
             onClick={onCloseMobile}
           />
           <div className="relative z-10 animate-in slide-in-from-left duration-200">
