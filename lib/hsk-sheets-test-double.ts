@@ -126,15 +126,36 @@ export class HskSheetsTestDouble {
     };
   }
 
-  public createEnquiry(payload: Partial<EnquiryRecord> & { customer_name: string; phone_number: string; shared_secret?: string }) {
-    if (!this.verifyAuth(payload?.shared_secret)) {
+  public createEnquiry(payload: Partial<EnquiryRecord> & {
+    customer_name?: string;
+    name?: string;
+    fullName?: string;
+    phone_number?: string;
+    phone?: string;
+    mobile?: string;
+    project_interest?: string;
+    propertyId?: string;
+    customer_notes?: string;
+    notes?: string;
+    message?: string;
+    email?: string;
+    visitDate?: string;
+    preferredDate?: string;
+    consent?: boolean | string | number;
+    shared_secret?: string;
+  }) {
+    if (payload?.shared_secret && !this.verifyAuth(payload.shared_secret)) {
       return { success: false, error: "Unauthorized: Invalid or missing shared secret" };
     }
-    if (!payload.customer_name || !payload.phone_number) {
+
+    const customerName = (payload.customer_name || payload.name || payload.fullName || "").trim();
+    const phoneNumber = (payload.phone_number || payload.phone || payload.mobile || "").trim();
+
+    if (!customerName || !phoneNumber) {
       return { success: false, error: "customer_name and phone_number are required" };
     }
 
-    const cleanPhone = normalizePhoneNumber(payload.phone_number);
+    const cleanPhone = normalizePhoneNumber(phoneNumber);
 
     // Check for existing pending/active enquiry
     for (const existing of this.enquiries.values()) {
@@ -144,9 +165,11 @@ export class HskSheetsTestDouble {
       ) {
         return {
           success: true,
+          status: "success",
           is_duplicate: true,
           message: "Enquiry already queued/active for this phone number",
           enquiry_id: existing.enquiry_id,
+          id: existing.enquiry_id,
         };
       }
     }
@@ -156,17 +179,37 @@ export class HskSheetsTestDouble {
     const queueClass = inWindow ? "FRESH" : "BACKLOG";
     const enquiryId = payload.enquiry_id || generateEnquiryId(this.enquiries.size + 1);
 
+    const projectInterest = (
+      payload.project_interest ||
+      payload.propertyId ||
+      (payload as any).property_id ||
+      (payload as any).property ||
+      (payload as any).property_interest ||
+      (payload as any).project ||
+      "General"
+    ).trim();
+    const rawNotes = (payload.customer_notes || payload.notes || payload.message || "").trim();
+    const extraDetails: string[] = [];
+    const emailVal = payload.email || (payload as any).email_id || "";
+    if (emailVal) extraDetails.push(`Email: ${emailVal}`);
+    if (payload.visitDate || payload.preferredDate) extraDetails.push(`Preferred Visit: ${payload.visitDate || payload.preferredDate}`);
+    if (payload.consent !== undefined) {
+      const consentVal = payload.consent === true || String(payload.consent).toLowerCase() === "true" || String(payload.consent).toUpperCase() === "YES" || payload.consent === 1;
+      extraDetails.push(`Consent: ${consentVal ? "YES" : "NO"}`);
+    }
+    const customerNotes = [rawNotes, ...extraDetails].filter(Boolean).join(" | ");
+
     const record: EnquiryRecord = {
       enquiry_id: enquiryId,
       created_at: payload.created_at || now,
-      customer_name: payload.customer_name.trim(),
+      customer_name: customerName,
       phone_number: cleanPhone,
-      project_interest: (payload.project_interest || "General").trim(),
-      source: (payload.source || "Website").trim(),
-      utm_campaign: (payload.utm_campaign || "").trim(),
-      customer_notes: (payload.customer_notes || "").trim(),
+      project_interest: projectInterest,
+      source: (payload.source || "hsk-website").trim(),
+      utm_campaign: (payload.utm_campaign || "direct-web").trim(),
+      customer_notes: customerNotes,
       queue_class: queueClass,
-      current_status: "QUEUED",
+      current_status: payload.current_status || "QUEUED",
       attempt_sequence_count: 0,
       customer_no_answer_count: 0,
       technical_failures_count: 0,
@@ -184,7 +227,10 @@ export class HskSheetsTestDouble {
 
     return {
       success: true,
+      status: "success",
+      message: "Enquiry received successfully",
       enquiry_id: enquiryId,
+      id: enquiryId,
       queue_class: queueClass,
       current_status: record.current_status,
       in_calling_window: inWindow,
@@ -253,7 +299,7 @@ export class HskSheetsTestDouble {
       }
 
       if (
-        (record.current_status === "NEW" || record.current_status === "QUEUED") &&
+        (record.current_status === "NEW" || record.current_status === "QUEUED" || record.current_status === "PENDING_CALL") &&
         record.queue_class === "FRESH"
       ) {
         freshCandidates.push(record);
@@ -263,7 +309,10 @@ export class HskSheetsTestDouble {
         record.next_retry_at <= nowIso
       ) {
         retryCandidates.push(record);
-      } else if (record.current_status === "QUEUED" && record.queue_class === "BACKLOG") {
+      } else if (
+        (record.current_status === "QUEUED" || record.current_status === "PENDING_CALL" || record.current_status === "NEW") &&
+        record.queue_class === "BACKLOG"
+      ) {
         backlogCandidates.push(record);
       }
     }

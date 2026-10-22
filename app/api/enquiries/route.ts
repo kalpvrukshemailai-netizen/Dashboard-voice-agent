@@ -25,12 +25,30 @@ export async function POST(req: Request) {
       );
     }
 
-    const rawName = String(body.customer_name ?? body.name ?? "").trim();
-    const rawPhone = String(body.phone_number ?? body.phone ?? "").trim();
-    const projectInterest = String(body.project_interest ?? body.project ?? "General").trim();
-    const customerNotes = String(body.customer_notes ?? body.notes ?? "").trim();
-    const source = String(body.source ?? "Website").trim();
-    const utmCampaign = String(body.utm_campaign ?? body.campaign ?? "").trim();
+    const rawName = String(
+      body.customer_name ?? body.name ?? body.fullName ?? body.full_name ?? body.lead_name ?? "",
+    ).trim();
+    const rawPhone = String(
+      body.phone_number ?? body.phone ?? body.mobile ?? body.contact ?? "",
+    ).trim();
+    const projectInterest = String(
+      body.project_interest ?? body.propertyId ?? body.property_id ?? body.property ?? body.project ?? "General",
+    ).trim();
+    const rawNotes = String(body.customer_notes ?? body.notes ?? body.message ?? "").trim();
+    const email = String(body.email ?? body.email_id ?? "").trim();
+    const preferredDate = String(body.preferredDate ?? body.preferred_date ?? body.visitDate ?? body.visit_date ?? "").trim();
+    const consent = body.consent !== undefined
+      ? (body.consent === true || String(body.consent).toLowerCase() === "true" || String(body.consent).toUpperCase() === "YES" || body.consent === 1)
+      : undefined;
+    const source = String(body.source ?? "hsk-website").trim();
+    const utmCampaign = String(body.utm_campaign ?? body.campaign ?? "direct-web").trim();
+
+    // Compile customer notes with supplementary details
+    const extraDetails: string[] = [];
+    if (email) extraDetails.push(`Email: ${email}`);
+    if (preferredDate) extraDetails.push(`Preferred Visit: ${preferredDate}`);
+    if (consent !== undefined) extraDetails.push(`Consent: ${consent ? "YES" : "NO"}`);
+    const customerNotes = [rawNotes, ...extraDetails].filter(Boolean).join(" | ");
 
     // 1. Rigorous Validation
     if (!rawName || rawName.length < 2) {

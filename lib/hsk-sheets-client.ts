@@ -195,7 +195,14 @@ export class HskSheetsClient {
     }
   }
 
-  public async createEnquiry(enquiry: Partial<EnquiryRecord> & { customer_name: string; phone_number: string }) {
+  public async createEnquiry(
+    enquiry: Partial<EnquiryRecord> & Record<string, unknown> & {
+      customer_name?: string;
+      phone_number?: string;
+      name?: string;
+      phone?: string;
+    },
+  ) {
     return this.execute("createEnquiry", enquiry);
   }
 

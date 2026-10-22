@@ -26,6 +26,7 @@ export type QueueClass = "FRESH" | "RETRY" | "BACKLOG" | "NONE";
 export type EnquiryStatus =
   | "NEW"
   | "QUEUED"
+  | "PENDING_CALL"
   | "CALLING"
   | "QUALIFIED"
   | "DISQUALIFIED"
