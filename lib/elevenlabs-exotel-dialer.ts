@@ -112,11 +112,15 @@ export async function initiateExotelOutboundCall(
     }
 
     if (!response.ok) {
-      const errMessage = data.detail?.message || data.error || data.message || `HTTP ${response.status}`;
+      const errDetail = typeof data.detail === "string"
+        ? data.detail
+        : Array.isArray(data.detail)
+        ? data.detail.map((d: any) => d.msg || JSON.stringify(d)).join(", ")
+        : data.detail?.message || data.error || data.message || `HTTP ${response.status}`;
       return {
         success: false,
         status_code: response.status,
-        error: `ElevenLabs Exotel API failed: ${errMessage}`,
+        error: `ElevenLabs Exotel API failed: ${errDetail}`,
       };
     }
 
