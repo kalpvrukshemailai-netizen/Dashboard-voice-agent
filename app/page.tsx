@@ -205,12 +205,30 @@ export default function DashboardPage() {
     }));
   }
 
-  // Initial load and periodic 15-second live sync
+  // Initial load and hands-free autonomous dialer loop (every 8 seconds)
   useEffect(() => {
     loadDashboardData(true);
-    const interval = setInterval(() => {
-      loadDashboardData(true);
-    }, 15000);
+    const interval = setInterval(async () => {
+      try {
+        // 1. Sync finished calls from ElevenLabs to Google Sheets
+        await fetch("/api/calls/sync", { method: "POST" }).catch(() => null);
+
+        // 2. Automatically claim and call any pending enquiry hands-free
+        const workerRes = await fetch("/api/scheduler/worker", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+        }).then((r) => r.json()).catch(() => null);
+
+        if (workerRes?.action === "CALL_INITIATED") {
+          toast(`📞 Auto-Dialer: Placed live outbound call to ${workerRes.enquiry_id}!`, "success");
+        }
+
+        // 3. Refresh dashboard state
+        loadDashboardData(true);
+      } catch {
+        // Ignore background polling errors
+      }
+    }, 8000);
     return () => clearInterval(interval);
   }, [loadDashboardData]);
 
