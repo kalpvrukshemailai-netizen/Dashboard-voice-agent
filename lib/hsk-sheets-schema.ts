@@ -351,12 +351,13 @@ export function getNextWindowOpeningTime(date: Date = new Date()): Date {
  */
 export function normalizePhoneNumber(raw: string | number | null | undefined): string {
   if (raw === null || raw === undefined) return "";
-  const cleaned = String(raw).replace(/[^\d+]/g, "").trim();
-  if (!cleaned) return "";
-  if (cleaned.startsWith("+")) return cleaned;
-  if (cleaned.length === 10) return `+91${cleaned}`;
-  if (cleaned.length === 12 && cleaned.startsWith("91")) return `+${cleaned}`;
-  return `+${cleaned}`;
+  let digits = String(raw).replace(/\D/g, "");
+  if (!digits) return "";
+  if (digits.length === 11 && digits.startsWith("0")) digits = digits.slice(1);
+  if (digits.length === 12 && digits.startsWith("91")) digits = digits.slice(2);
+  if (digits.length === 13 && digits.startsWith("091")) digits = digits.slice(3);
+  if (digits.length === 10) return `+91${digits}`;
+  return `+${digits}`;
 }
 
 /**

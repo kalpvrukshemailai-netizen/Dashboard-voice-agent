@@ -78,6 +78,16 @@ export async function POST(req: Request) {
       );
     }
 
+    if (cleanPhone.startsWith("+91") && !/^\+91[6-9]\d{9}$/.test(cleanPhone)) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Invalid mobile number. An Indian 10-digit mobile number must start with 6, 7, 8, or 9.",
+        },
+        { status: 400 },
+      );
+    }
+
     // 2. Calling Hours Gate Check (9:00 AM - 10:00 PM IST)
     const inCallingWindow = isCallingWindowOpen();
     const nextWindowOpening = !inCallingWindow ? getNextWindowOpeningTime().toISOString() : null;
