@@ -5,12 +5,13 @@ import {
   Menu,
   RefreshCw,
   Search,
-  FileSpreadsheet,
   Settings,
   Clock,
   Radio,
   CheckCircle2,
   AlertTriangle,
+  ChevronRight,
+  Command,
 } from "lucide-react";
 import { NavTab } from "./sidebar";
 import { cn } from "@/lib/utils";
@@ -32,7 +33,7 @@ interface TopbarProps {
 const titles: Record<NavTab, { title: string; subtitle: string }> = {
   overview: {
     title: "Command Center",
-    subtitle: "Real-time enquiry intake, queue priority, and AI voice qualification performance.",
+    subtitle: "Real-time enquiry intake, queue priority, and AI voice qualification funnel.",
   },
   leads: {
     title: "Enquiry Management",
@@ -98,44 +99,47 @@ export function Topbar({
 
   return (
     <header
-      className="flex items-center justify-between px-4 sm:px-6 sticky top-0 z-30 w-full min-w-0"
+      className="flex items-center justify-between px-5 sm:px-7 sticky top-0 z-30 w-full min-w-0"
       style={{
-        height: "64px",
-        background: "var(--surface, #ffffff)",
-        borderBottom: "1px solid var(--border, rgba(226, 232, 240, 0.8))",
+        height: "58px",
+        background: "#FFFFFF",
+        borderBottom: "1px solid #E2E8F0",
       }}
     >
-      {/* ── Left: Mobile trigger & Page title ── */}
-      <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
-        {/* Mobile hamburger */}
+      {/* ── Left: Mobile Hamburger & Page Context ── */}
+      <div className="flex items-center gap-3 min-w-0">
         <button
           onClick={onOpenMobileMenu}
-          className="p-2 -ml-1 rounded-xl md:hidden transition-colors shrink-0 text-slate-500 hover:text-slate-900"
+          className="p-1.5 -ml-1 rounded-lg md:hidden transition-colors shrink-0 text-slate-500 hover:text-slate-900 hover:bg-slate-100"
           aria-label="Open navigation menu"
         >
           <Menu className="w-5 h-5" />
         </button>
 
-        {/* Page title block */}
         <div className="min-w-0">
-          <h2
-            className="text-[15px] font-bold leading-tight truncate text-slate-900"
-            style={{ fontFamily: "'Manrope', sans-serif" }}
-          >
-            {current.title}
-          </h2>
-          <p
-            className="text-[11.5px] font-normal hidden sm:block truncate max-w-sm text-slate-500"
-            style={{ fontFamily: "'Inter', sans-serif" }}
-          >
+          <div className="flex items-center gap-2">
+            <h2
+              className="text-[14.5px] font-semibold text-slate-900 tracking-tight truncate"
+              style={{ fontFamily: "'Manrope', sans-serif" }}
+            >
+              {current.title}
+            </h2>
+            <span
+              className="hidden sm:inline-block px-1.5 py-0.2 rounded text-[10px] font-mono tracking-wider font-medium text-slate-500"
+              style={{ background: "#F1F5F9" }}
+            >
+              HSK
+            </span>
+          </div>
+          <p className="text-[11px] text-slate-400 hidden lg:block truncate max-w-sm">
             {current.subtitle}
           </p>
         </div>
       </div>
 
-      {/* ── Center: Search for Enquiries ── */}
+      {/* ── Center: Fast Global Search ── */}
       {(activeTab === "overview" || activeTab === "leads" || activeTab === "calls") && (
-        <div className="hidden lg:flex items-center flex-1 max-w-[260px] mx-4 min-w-0">
+        <div className="hidden md:flex items-center flex-1 max-w-[280px] mx-4 min-w-0">
           <div className="relative w-full">
             <Search
               className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400"
@@ -144,80 +148,80 @@ export function Topbar({
               type="text"
               value={searchQuery}
               onChange={(e) => onSearchChange(e.target.value)}
-              placeholder="Search by name, phone, ID..."
-              className="w-full pl-8 pr-3 py-1.5 text-[12.5px] rounded-xl outline-none bg-slate-50 border border-slate-200 text-slate-800 placeholder-slate-400 focus:border-teal-500 focus:bg-white transition-all"
+              placeholder="Search leads, phone, unit..."
+              className="w-full pl-8 pr-8 py-1.5 text-xs rounded-lg outline-none bg-slate-50 border border-slate-200 text-slate-800 placeholder-slate-400 focus:border-slate-400 focus:bg-white transition-colors"
             />
+            <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] font-mono text-slate-400 pointer-events-none">
+              ⌘K
+            </span>
           </div>
         </div>
       )}
 
-      {/* ── Right: Clocks, Badges, and Actions ── */}
-      <div className="flex items-center gap-2 sm:gap-2.5 shrink-0">
+      {/* ── Right: Clocks, Status Badges, and Sync Action ── */}
+      <div className="flex items-center gap-2 shrink-0">
         {/* Real-time IST Clock */}
         <div
-          className="hidden md:flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-mono bg-slate-100 text-slate-700 border border-slate-200/80"
+          className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-mono bg-slate-50 text-slate-700 border border-slate-200 tabular-nums"
           title="Current Asia/Kolkata Time (Calling Window: 9:00 AM – 10:00 PM IST)"
         >
-          <Clock className="w-3.5 h-3.5 text-slate-500" />
+          <Clock className="w-3 h-3 text-slate-400" />
           <span>{istTime || "IST"}</span>
         </div>
 
         {/* Calling Window Indicator */}
         <div
           className={cn(
-            "hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium border",
+            "hidden sm:flex items-center gap-1.5 px-2 py-1 rounded-lg text-[11px] font-medium border",
             isCallingWindowOpen
-              ? "bg-emerald-50 text-emerald-800 border-emerald-200"
-              : "bg-amber-50 text-amber-800 border-amber-200",
+              ? "border-emerald-200"
+              : "border-amber-200"
           )}
+          style={{
+            background: isCallingWindowOpen ? "#DCFAE5" : "#FFFBEB",
+            color: isCallingWindowOpen ? "#04250E" : "#92400E",
+          }}
         >
           <span
-            className={cn(
-              "w-2 h-2 rounded-full",
-              isCallingWindowOpen ? "bg-emerald-500 animate-pulse" : "bg-amber-500",
-            )}
+            className="w-1.5 h-1.5 rounded-full"
+            style={{ background: isCallingWindowOpen ? "#16A34A" : "#D97706" }}
           />
-          <span className="text-[11px] font-semibold">
+          <span className="text-[10.5px]">
             {isCallingWindowOpen ? "Window Open" : "Outside Hours"}
           </span>
         </div>
 
-        {/* Integration State Button */}
+        {/* Integration Status Button */}
         <button
           onClick={onOpenSettings}
           className={cn(
-            "inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-[11.5px] font-semibold transition-all border shadow-2xs",
+            "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium transition-colors border",
             connectionStatus === "connected"
-              ? "bg-teal-50 text-teal-800 border-teal-200 hover:bg-teal-100"
-              : connectionStatus === "mock"
-              ? "bg-indigo-50 text-indigo-800 border-indigo-200 hover:bg-indigo-100"
-              : "bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-100",
+              ? "bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200"
+              : "bg-amber-50 hover:bg-amber-100 text-amber-800 border-amber-200"
           )}
           title="Inspect Google Sheets & External Connections"
         >
-          {connectionStatus === "connected" ? (
-            <CheckCircle2 className="w-3.5 h-3.5 text-teal-600" />
-          ) : (
-            <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
-          )}
-          <span className="hidden sm:inline">
-            {connectionStatus === "connected"
-              ? "Live Sheet"
-              : connectionStatus === "mock"
-              ? "Test Double"
-              : "Setup Needed"}
+          <CheckCircle2
+            className={cn(
+              "w-3 h-3",
+              connectionStatus === "connected" ? "text-emerald-600" : "text-amber-600"
+            )}
+          />
+          <span className="hidden md:inline">
+            {connectionStatus === "connected" ? "Live Sheet" : "Setup Needed"}
           </span>
         </button>
 
-        {/* Refresh Button */}
+        {/* Refresh Action */}
         <button
           onClick={onRefresh}
           disabled={isRefreshing}
-          className="ds-btn ds-btn-secondary h-8 px-2.5 text-xs font-medium text-slate-700 bg-white hover:bg-slate-50 border border-slate-200 rounded-xl"
+          className="h-7 px-2.5 text-[11px] font-medium text-slate-700 bg-white hover:bg-slate-50 border border-slate-200 rounded-lg inline-flex items-center gap-1.5 transition-colors disabled:opacity-50 shadow-2xs"
           title={lastRefreshedAt ? `Last refreshed: ${lastRefreshedAt.toLocaleTimeString()}` : "Refresh"}
         >
-          <RefreshCw className={cn("w-3.5 h-3.5", isRefreshing && "animate-spin text-teal-600")} />
-          <span className="hidden sm:inline">{isRefreshing ? "Refreshing..." : "Refresh"}</span>
+          <RefreshCw className={cn("w-3 h-3 text-slate-500", isRefreshing && "animate-spin text-slate-900")} />
+          <span className="hidden sm:inline">{isRefreshing ? "Syncing..." : "Refresh"}</span>
         </button>
       </div>
     </header>

@@ -235,7 +235,7 @@ export function KpiCards({
             <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 font-mono">
               Qualification Rate
             </span>
-            <div className="w-8 h-8 rounded-xl bg-indigo-50 flex items-center justify-center text-indigo-700">
+            <div className="w-8 h-8 rounded-xl bg-teal-50 flex items-center justify-center text-teal-800">
               <Percent className="w-4 h-4" />
             </div>
           </div>
@@ -243,7 +243,7 @@ export function KpiCards({
             <div className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight" style={{ fontFamily: "'Manrope', sans-serif" }}>
               {isUnavailable ? "—" : `${qualificationRate}%`}
             </div>
-            <p className="text-[11px] text-indigo-700 font-medium mt-1 truncate" title={`Formula: ${interestedCustomers} qualified / ${qualificationDenominator} answered customers`}>
+            <p className="text-[11px] text-teal-800 font-medium mt-1 truncate" title={`Formula: ${interestedCustomers} qualified / ${qualificationDenominator} answered customers`}>
               {qualificationDenominator > 0
                 ? `${interestedCustomers} of ${qualificationDenominator} answered calls`
                 : "Awaiting completed calls"}

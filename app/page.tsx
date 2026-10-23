@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { Sidebar, NavTab } from "@/components/dashboard/sidebar";
 import { Topbar } from "@/components/dashboard/topbar";
+import { OverviewView } from "@/components/dashboard/overview-view";
 import { KpiCards } from "@/components/dashboard/kpi-card";
 import { QueueSummaryCard } from "@/components/dashboard/queue-summary-card";
 import { LeadTable } from "@/components/leads/lead-table";
@@ -220,7 +221,7 @@ export default function DashboardPage() {
         }).then((r) => r.json()).catch(() => null);
 
         if (workerRes?.action === "CALL_INITIATED") {
-          toast(`📞 Auto-Dialer: Placed live outbound call to ${workerRes.enquiry_id}!`, "success");
+          toast(`Auto-Dialer: Placed live outbound call to ${workerRes.enquiry_id}!`, "success");
         }
 
         // 3. Refresh dashboard state
@@ -454,87 +455,23 @@ export default function DashboardPage() {
               TAB 1: OVERVIEW (Command Center)
           ══════════════════════════════════════════════════════════════════ */}
           {activeTab === "overview" && (
-            <div className="space-y-6 min-w-0 w-full">
-              {/* Header Actions */}
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                <div>
-                  <h1
-                    className="text-2xl sm:text-3xl font-extrabold tracking-tight text-slate-900"
-                    style={{ fontFamily: "'Manrope', sans-serif" }}
-                  >
-                    HSK Command Center
-                  </h1>
-                  <p className="text-xs sm:text-sm text-slate-500 mt-1">
-                    Live operational metrics, active queue states, and AI voice qualification funnel.
-                  </p>
-                </div>
-
-                <div className="flex items-center gap-2.5 shrink-0 flex-wrap">
-                  <button
-                    onClick={handleCreateSyntheticEnquiry}
-                    className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 font-semibold text-xs transition-colors shadow-2xs"
-                  >
-                    <Sparkles className="w-3.5 h-3.5 text-teal-600" />
-                    <span>Test Synthetic Intake</span>
-                  </button>
-
-                  <button
-                    onClick={() => setActiveTab("leads")}
-                    className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-semibold text-xs transition-colors shadow-xs"
-                  >
-                    <span>Manage Enquiries</span>
-                    <ArrowRight className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              </div>
-
-              {/* 12-Metric Comprehensive KPI Suite */}
-              <KpiCards
-                enquiries={enquiries}
-                outcomes={outcomes}
-                leads={leads}
-                isLoading={isLoading}
-                isUnavailable={connectionStatus === "error" && !isExplicitDemo}
-              />
-
-              {/* Queue Summary & Dialer Concurrency Card */}
-              <QueueSummaryCard
-                enquiries={enquiries}
-                isCallingWindowOpen={isCallingWindowOpen}
-                nextWindowOpensAt={nextWindowOpensAt}
-                dialerLock={dialerLock}
-                onTriggerWorker={handleTriggerWorker}
-                isTriggering={isTriggeringWorker}
-              />
-
-              {/* 2-Column Grid: Recent Enquiries & Recent Outcomes */}
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 min-w-0">
-                {/* Left: Recent Enquiries */}
-                <div className="min-w-0">
-                  <LeadTable
-                    enquiries={enquiries.slice(0, 5)}
-                    leads={leads.slice(0, 5)}
-                    selectedLead={selectedItem}
-                    onSelectLead={handleSelectLead}
-                    compact={true}
-                    onViewAll={() => setActiveTab("leads")}
-                    isDemo={isExplicitDemo}
-                    onCreateTestEnquiry={handleCreateSyntheticEnquiry}
-                  />
-                </div>
-
-                {/* Right: Recent Call Outcomes */}
-                <div className="min-w-0">
-                  <CallsTable
-                    outcomes={outcomes.slice(0, 5)}
-                    enquiries={enquiries}
-                    leads={leads.slice(0, 5)}
-                    onSelectLead={handleSelectLead}
-                    isDemo={isExplicitDemo}
-                  />
-                </div>
-              </div>
-            </div>
+            <OverviewView
+              enquiries={enquiries}
+              outcomes={outcomes}
+              leads={leads}
+              isLoading={isLoading}
+              isRefreshing={isRefreshing}
+              isExplicitDemo={isExplicitDemo}
+              connectionStatus={connectionStatus}
+              isCallingWindowOpen={isCallingWindowOpen}
+              nextWindowOpensAt={nextWindowOpensAt}
+              dialerLock={dialerLock}
+              onTriggerWorker={handleTriggerWorker}
+              isTriggeringWorker={isTriggeringWorker}
+              onCreateSyntheticEnquiry={handleCreateSyntheticEnquiry}
+              onSelectLead={handleSelectLead}
+              onNavigateTab={(tab) => setActiveTab(tab)}
+            />
           )}
 
           {/* ══════════════════════════════════════════════════════════════════

@@ -11,6 +11,7 @@ import {
   Filter,
   PieChart as PieIcon,
   BarChart2,
+  TrendingUp,
 } from "lucide-react";
 import { Lead } from "@/lib/google-sheets";
 
@@ -19,7 +20,7 @@ interface AnalyticsViewProps {
 }
 
 export function AnalyticsView({ leads }: AnalyticsViewProps) {
-  const totalLeads     = leads.length;
+  const totalLeads = leads.length;
   const completedCalls = leads.filter((l) => l.callStatus === "Completed").length;
 
   const interested = leads.filter(
@@ -36,11 +37,10 @@ export function AnalyticsView({ leads }: AnalyticsViewProps) {
   }).length;
 
   const unknown = Math.max(0, completedCalls - (interested + notInterested + notReady));
-
   const interestIdentified = interested + notInterested + notReady;
 
   const funnelSteps = [
-    { label: "Total Leads",         count: totalLeads,         percent: 100 },
+    { label: "Total Leads Received", count: totalLeads, percent: 100 },
     {
       label: "Calls Completed",
       count: completedCalls,
@@ -52,7 +52,7 @@ export function AnalyticsView({ leads }: AnalyticsViewProps) {
       percent: totalLeads > 0 ? Math.round((interestIdentified / totalLeads) * 100) : 0,
     },
     {
-      label: "Interested Leads",
+      label: "Qualified & Interested",
       count: interested,
       percent: totalLeads > 0 ? Math.round((interested / totalLeads) * 100) : 0,
     },
@@ -75,186 +75,214 @@ export function AnalyticsView({ leads }: AnalyticsViewProps) {
     return Object.entries(counts).sort((a, b) => b[1] - a[1]);
   }, [leads]);
 
-  // ─── KPI card data ─────────────────────────────────────────
+  // Executive KPI Cards (no bright circular bubble icons)
   const kpiCards = [
-    { label: "Total Leads",    value: totalLeads,      sub: "Loaded dataset",      icon: Users },
-    { label: "Completed",      value: completedCalls,  sub: "Finished voice calls", icon: PhoneCall },
     {
-      label: "Interested",
-      value: interested,
-      sub: completedCalls > 0 ? `${Math.round((interested / completedCalls) * 100)}% of calls` : "0% of calls",
-      icon: ThumbsUp,
+      label: "Total Intake",
+      value: totalLeads,
+      sub: "Active database leads",
+      accent: "border-slate-200",
     },
-    { label: "Not Interested", value: notInterested,   sub: "Disqualified / Passed", icon: ThumbsDown },
-    { label: "Not Ready",      value: notReady,        sub: "Follow-up needed",      icon: AlertCircle },
-    { label: "Unknown",        value: unknown,         sub: "Awaiting analysis",     icon: HelpCircle },
+    {
+      label: "Completed Calls",
+      value: completedCalls,
+      sub: totalLeads > 0 ? `${Math.round((completedCalls / totalLeads) * 100)}% contact rate` : "0% contact rate",
+      accent: "border-slate-200",
+    },
+    {
+      label: "Qualified Leads",
+      value: interested,
+      sub: completedCalls > 0 ? `${Math.round((interested / completedCalls) * 100)}% conversion yield` : "0% conversion",
+      accent: "border-emerald-300/80 bg-emerald-50/20",
+    },
+    {
+      label: "Follow-Up Pending",
+      value: notReady,
+      sub: "Callback or schedule request",
+      accent: "border-amber-200/80 bg-amber-50/20",
+    },
+    {
+      label: "Disqualified",
+      value: notInterested,
+      sub: "Passed or out of budget",
+      accent: "border-slate-200",
+    },
+    {
+      label: "Pending Analysis",
+      value: unknown,
+      sub: "Awaiting LLM webhook",
+      accent: "border-slate-200",
+    },
   ];
 
   return (
     <div className="space-y-6 min-w-0 w-full">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h1
+            className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight"
+            style={{ fontFamily: "'Manrope', sans-serif" }}
+          >
+            Performance Analytics
+          </h1>
+          <p className="text-xs sm:text-sm text-slate-500 mt-1">
+            Conversion telemetry, intake funnel throughput, and prospect property intent distribution.
+          </p>
+        </div>
 
-      {/* Page header */}
-      <div className="min-w-0 w-full">
-        <h1
-          className="text-2xl sm:text-3xl font-extrabold tracking-tight truncate"
-          style={{ fontFamily: "'Manrope', sans-serif", color: "var(--text-primary)" }}
-        >
-          Analytics
-        </h1>
-        <p className="text-xs sm:text-sm mt-1" style={{ color: "var(--text-secondary)" }}>
-          Qualification performance, funnel conversions, and intent breakdown.
-        </p>
+        <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white border border-slate-200/90 shadow-2xs text-xs font-semibold text-slate-700">
+          <TrendingUp className="w-3.5 h-3.5 text-teal-600" />
+          <span>Real-time conversion sync</span>
+        </div>
       </div>
 
-      {/* KPI grid: 2 rows of 3 balanced cards on desktop */}
-      <div className="analytics-kpi-grid">
-        {kpiCards.map(({ label, value, sub, icon: Icon }, idx) => (
+      {/* KPI 6-Grid */}
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+        {kpiCards.map((kpi, idx) => (
           <div
             key={idx}
-            className="ds-card p-4.5 flex flex-col justify-between h-full min-w-0"
+            className={`p-4 rounded-xl bg-white border ${kpi.accent} shadow-2xs flex flex-col justify-between transition-all hover:border-slate-300`}
           >
-            <div className="flex items-start justify-between gap-2 mb-3 min-w-0">
-              <span
-                className="text-[11px] font-semibold uppercase tracking-wider leading-tight min-w-0 break-words"
-                style={{
-                  fontFamily: "'Inter', sans-serif",
-                  color: "var(--text-muted)",
-                  letterSpacing: "0.07em",
-                }}
-              >
-                {label}
-              </span>
-              <div
-                className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0"
-                style={{ background: "var(--brand-blue-subtle)" }}
-              >
-                <Icon style={{ width: 15, height: 15, color: "var(--brand-blue)" }} strokeWidth={1.75} />
-              </div>
+            <div className="text-[10.5px] font-bold uppercase tracking-wider text-slate-400">
+              {kpi.label}
             </div>
-
-            <div className="min-w-0">
+            <div className="my-2">
               <div
-                className="text-2xl sm:text-3xl leading-none mb-1.5 font-bold tabular-nums"
-                style={{
-                  fontFamily: "'Manrope', sans-serif",
-                  color: "var(--text-primary)",
-                  letterSpacing: "-0.02em",
-                }}
+                className="text-2xl lg:text-3xl font-extrabold text-slate-950 tabular-nums tracking-tight"
+                style={{ fontFamily: "'Manrope', sans-serif" }}
               >
-                {value}
+                {kpi.value}
               </div>
-
-              <p
-                className="text-[11.5px] truncate"
-                title={sub}
-                style={{ fontFamily: "'Inter', sans-serif", color: "var(--text-muted)" }}
-              >
-                {sub}
-              </p>
+              <div className="text-[11px] text-slate-500 font-medium truncate mt-0.5">
+                {kpi.sub}
+              </div>
             </div>
           </div>
         ))}
       </div>
 
-      {/* Funnel + Status lower grid */}
-      <div className="analytics-lower-grid">
-
-        {/* Qualification Funnel */}
-        <div className="ds-card p-6 min-w-0">
-          <div className="flex items-center gap-2.5 mb-1.5 min-w-0">
-            <Filter className="w-4 h-4 shrink-0" style={{ color: "var(--brand-blue)" }} />
-            <h3
-              className="text-[15px] font-bold truncate"
-              style={{ fontFamily: "'Manrope', sans-serif", color: "var(--text-primary)" }}
-            >
-              Qualification Funnel
-            </h3>
+      {/* Middle Grid: Qualification Funnel + Status Breakdown */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        {/* Qualification Funnel (7 cols) */}
+        <div className="lg:col-span-7 bg-white rounded-2xl border border-slate-200/90 p-6 shadow-2xs space-y-6">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center text-slate-700">
+                <Filter className="w-4 h-4" />
+              </div>
+              <div>
+                <h2
+                  className="text-base font-bold text-slate-950"
+                  style={{ fontFamily: "'Manrope', sans-serif" }}
+                >
+                  Intake Qualification Funnel
+                </h2>
+                <p className="text-xs text-slate-500">
+                  Step-by-step conversion from web lead to verified prospective buyer
+                </p>
+              </div>
+            </div>
           </div>
-          <p className="text-xs mb-6 text-slate-500">
-            Conversion stages from raw leads to verified interested prospects.
-          </p>
 
-          <div className="space-y-5 min-w-0">
+          <div className="space-y-4">
             {funnelSteps.map((step, idx) => (
-              <div key={idx} className="space-y-2 min-w-0">
-                <div className="flex items-center justify-between gap-3 text-xs min-w-0">
-                  <span className="font-semibold text-slate-700 truncate" title={step.label}>
-                    {step.label}
-                  </span>
-                  <div className="flex items-center gap-1.5 shrink-0 tabular-nums">
-                    <span className="font-bold text-slate-900">
-                      {step.count}
-                    </span>
-                    <span className="text-[11px] text-slate-400">
-                      ({step.percent}%)
-                    </span>
+              <div key={idx} className="space-y-1.5">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="font-semibold text-slate-800">{step.label}</span>
+                  <div className="flex items-center gap-2 tabular-nums">
+                    <span className="font-bold text-slate-950 text-sm">{step.count}</span>
+                    <span className="text-[11px] font-semibold text-slate-400">({step.percent}%)</span>
                   </div>
                 </div>
-                {/* Progress bar */}
-                <div className="w-full h-2 rounded-full overflow-hidden bg-slate-100">
+                {/* Visual Bar */}
+                <div className="w-full h-2.5 rounded-full bg-slate-100 overflow-hidden p-0.5">
                   <div
-                    className="h-full rounded-full transition-all duration-500"
+                    className="h-full rounded-full transition-all duration-700"
                     style={{
                       width: `${Math.max(4, step.percent)}%`,
-                      background: idx === funnelSteps.length - 1
-                        ? "var(--ai-teal)"
-                        : "var(--brand-blue)",
-                      opacity: 1 - idx * 0.15,
+                      backgroundColor:
+                        idx === 0
+                          ? "#334155"
+                          : idx === 1
+                          ? "#0e7490"
+                          : idx === 2
+                          ? "#0d9488"
+                          : "#059669",
                     }}
                   />
                 </div>
               </div>
             ))}
           </div>
+
+          <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200/60 flex items-center justify-between text-xs text-slate-600">
+            <span>Overall qualification conversion yield</span>
+            <span className="font-extrabold text-emerald-800 tabular-nums">
+              {totalLeads > 0 ? `${Math.round((interested / totalLeads) * 100)}% of total intake` : "0%"}
+            </span>
+          </div>
         </div>
 
-        {/* Lead Status Distribution */}
-        <div className="ds-card p-6 min-w-0">
-          <div className="flex items-center gap-2.5 mb-1.5 min-w-0">
-            <PieIcon className="w-4 h-4 shrink-0" style={{ color: "var(--brand-blue)" }} />
-            <h3
-              className="text-[15px] font-bold truncate"
-              style={{ fontFamily: "'Manrope', sans-serif", color: "var(--text-primary)" }}
-            >
-              Lead Status Distribution
-            </h3>
+        {/* Lead Status Distribution (5 cols) */}
+        <div className="lg:col-span-5 bg-white rounded-2xl border border-slate-200/90 p-6 shadow-2xs space-y-6">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center text-slate-700">
+              <PieIcon className="w-4 h-4" />
+            </div>
+            <div>
+              <h2
+                className="text-base font-bold text-slate-950"
+                style={{ fontFamily: "'Manrope', sans-serif" }}
+              >
+                Operational Status Mix
+              </h2>
+              <p className="text-xs text-slate-500">
+                Current operational state across pipeline records
+              </p>
+            </div>
           </div>
-          <p className="text-xs mb-6 text-slate-500">
-            Current operational state across all prospect records.
-          </p>
 
-          <div className="space-y-3 min-w-0">
+          <div className="space-y-2.5">
             {[
-              { label: "Completed", count: statusCounts.Completed || 0, dot: "var(--success-dot)" },
-              { label: "Calling / In Progress", count: statusCounts.Calling || 0, dot: "var(--brand-blue)" },
-              { label: "Pending", count: statusCounts.Pending || 0, dot: "var(--neutral-dot)" },
-              { label: "Failed / Unreachable", count: statusCounts.Failed || 0, dot: "var(--error-dot)" },
+              {
+                label: "Completed",
+                count: statusCounts.Completed || 0,
+                color: "bg-[#04250e] text-[#dcfae5] border-[#bbf7d0]",
+                dot: "bg-emerald-500",
+              },
+              {
+                label: "Calling / In-Flight",
+                count: statusCounts.Calling || 0,
+                color: "bg-[#082f49] text-[#e0f2fe] border-[#bae6fd]",
+                dot: "bg-sky-500",
+              },
+              {
+                label: "Pending in Queue",
+                count: statusCounts.Pending || 0,
+                color: "bg-[#292524] text-[#f5f5f4] border-slate-300",
+                dot: "bg-slate-400",
+              },
+              {
+                label: "Failed / Unreachable",
+                count: statusCounts.Failed || 0,
+                color: "bg-[#450a0a] text-[#fee2e2] border-[#fecaca]",
+                dot: "bg-rose-500",
+              },
             ].map((item, idx) => {
               const pct = totalLeads > 0 ? Math.round((item.count / totalLeads) * 100) : 0;
               return (
                 <div
                   key={idx}
-                  className="flex items-center justify-between gap-3 px-3.5 py-3 rounded-xl border border-slate-100 bg-slate-50/60 min-w-0"
+                  className="flex items-center justify-between p-3 rounded-xl border border-slate-100 bg-slate-50/70 hover:bg-slate-50 transition-colors"
                 >
-                  <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                    <span
-                      className="w-2.5 h-2.5 rounded-full shrink-0"
-                      style={{ background: item.dot }}
-                    />
-                    <span
-                      className="text-xs font-semibold text-slate-700 truncate"
-                      title={item.label}
-                    >
-                      {item.label}
-                    </span>
+                  <div className="flex items-center gap-2.5">
+                    <span className={`w-2 h-2 rounded-full ${item.dot}`} />
+                    <span className="text-xs font-semibold text-slate-800">{item.label}</span>
                   </div>
-                  <div className="flex items-center gap-1.5 shrink-0 tabular-nums">
-                    <span className="text-xs font-bold text-slate-900">
-                      {item.count}
-                    </span>
-                    <span className="text-[11px] text-slate-400 font-medium">
-                      ({pct}%)
-                    </span>
+                  <div className="flex items-center gap-2 tabular-nums">
+                    <span className="text-xs font-extrabold text-slate-900">{item.count}</span>
+                    <span className="text-[11px] text-slate-400">({pct}%)</span>
                   </div>
                 </div>
               );
@@ -264,46 +292,50 @@ export function AnalyticsView({ leads }: AnalyticsViewProps) {
       </div>
 
       {/* Property Intent Distribution */}
-      <div className="ds-card p-6 min-w-0 w-full">
-        <div className="flex items-center gap-2.5 mb-1.5 min-w-0">
-          <BarChart2 className="w-4 h-4 shrink-0" style={{ color: "var(--brand-blue)" }} />
-          <h3
-            className="text-[15px] font-bold truncate"
-            style={{ fontFamily: "'Manrope', sans-serif", color: "var(--text-primary)" }}
-          >
-            Property Intent Distribution
-          </h3>
+      <div className="bg-white rounded-2xl border border-slate-200/90 p-6 shadow-2xs space-y-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center text-slate-700">
+              <BarChart2 className="w-4 h-4" />
+            </div>
+            <div>
+              <h2
+                className="text-base font-bold text-slate-950"
+                style={{ fontFamily: "'Manrope', sans-serif" }}
+              >
+                Property Intent & Configuration Demand
+              </h2>
+              <p className="text-xs text-slate-500">
+                Segmented demand breakdown captured through automated voice discovery
+              </p>
+            </div>
+          </div>
         </div>
-        <p className="text-xs mb-6 text-slate-500">
-          Types of real estate requirements captured from prospects.
-        </p>
 
         {intentCounts.length === 0 ? (
-          <p className="text-xs text-slate-400">
-            No intent data captured yet.
+          <p className="text-xs text-slate-400 py-6 text-center">
+            No intent data captured yet in active records.
           </p>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5 min-w-0">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3.5 pt-2">
             {intentCounts.map(([intent, count], idx) => {
               const pct = totalLeads > 0 ? Math.round((count / totalLeads) * 100) : 0;
               return (
                 <div
                   key={idx}
-                  className="p-4 rounded-xl border border-slate-100 bg-slate-50/50 flex flex-col justify-between min-w-0"
+                  className="p-4 rounded-xl border border-slate-200/80 bg-slate-50/40 hover:bg-white hover:border-slate-300 transition-all flex flex-col justify-between"
                 >
-                  <div
-                    className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 truncate"
-                    title={intent}
-                  >
+                  <div className="text-[11px] font-bold uppercase tracking-wider text-slate-400 truncate" title={intent}>
                     {intent}
                   </div>
-                  <div className="flex items-end justify-between mt-3 gap-2">
+                  <div className="flex items-baseline justify-between mt-3">
                     <span
-                      className="text-2xl font-bold tabular-nums text-slate-900 font-display"
+                      className="text-2xl font-extrabold text-slate-950 tabular-nums"
+                      style={{ fontFamily: "'Manrope', sans-serif" }}
                     >
                       {count}
                     </span>
-                    <span className="text-xs font-medium text-slate-400 mb-0.5 shrink-0">
+                    <span className="text-xs font-semibold text-teal-700 tabular-nums">
                       {pct}% of leads
                     </span>
                   </div>
@@ -313,7 +345,6 @@ export function AnalyticsView({ leads }: AnalyticsViewProps) {
           </div>
         )}
       </div>
-
     </div>
   );
 }

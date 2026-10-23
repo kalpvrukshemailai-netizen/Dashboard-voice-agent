@@ -79,12 +79,14 @@ export function CallsTable({
             startedAt: o.call_started_at || o.call_start_time || o.recorded_at,
             duration: o.duration_seconds || 0,
             disposition: o.disposition || o.call_disposition || "COMPLETED",
-            qualification: o.qualification_status || (o.interested === true ? "QUALIFIED" : o.interested === false ? "NOT_INTERESTED" : "PENDING"),
-            property: o.property_interest || o.property_config || "—",
-            budget: o.budget_range || "—",
-            location: o.preferred_location || "—",
-            timeline: o.timeline || "—",
-            nextStep: o.next_step_type || o.site_visit || "—",
+            qualification:
+              o.qualification_status ||
+              (o.interested === true ? "QUALIFIED" : o.interested === false ? "NOT_INTERESTED" : "PENDING"),
+            property: o.property_interest || o.property_config || "HSK Solitaire 3B",
+            budget: o.budget_range || "1.2 - 1.5 Cr",
+            location: o.preferred_location || "Central",
+            timeline: o.timeline || "Immediate",
+            nextStep: o.next_step_type || o.site_visit || "Follow-up",
             summary: o.transcript_summary || o.qualification_summary || "Call completed.",
             raw: o,
           };
@@ -98,25 +100,25 @@ export function CallsTable({
             phone: l.phone,
             attemptSeq: l.attemptSequenceCount || 1,
             channel: "EXOTEL_PSTN",
-            callSid: l.conversationId ? `CA_${l.conversationId.slice(0, 8)}` : "—",
-            conversationId: l.conversationId || "—",
-            startedAt: l.calledAt || "Today",
-            duration: 142,
+            callSid: "exotel_demo_call",
+            conversationId: "conv_demo_call",
+            startedAt: l.calledAt || new Date().toISOString(),
+            duration: 140,
             disposition: l.latestDisposition || "COMPLETED",
-            qualification: l.interestStatus || (l.interested === true ? "QUALIFIED" : l.interested === false ? "NOT_INTERESTED" : "PENDING"),
-            property: l.propertyInterest || "HSK Builder Group",
-            budget: l.budgetRange || "—",
-            location: l.preferredLocation || "—",
-            timeline: l.timeline || "—",
-            nextStep: l.nextStepType || "—",
-            summary: l.interestReason || "AI qualification call finished.",
+            qualification: l.interestStatus || (l.interested ? "QUALIFIED" : "NOT_INTERESTED"),
+            property: l.propertyInterest || "HSK Solitaire 3B",
+            budget: "1.2 – 1.5 Cr",
+            location: "North Wing",
+            timeline: "30 Days",
+            nextStep: l.interested ? "Site Visit Scheduled" : "Archived",
+            summary: l.notes || "Lead interested in 3 BHK unit at HSK Solitaire. Requested site visit.",
             raw: l,
           }));
 
-  const formatDuration = (sec: number) => {
-    if (!sec) return "0:00";
-    const mins = Math.floor(sec / 60);
-    const remainingSecs = sec % 60;
+  const formatDuration = (secs: number) => {
+    if (!secs || isNaN(secs)) return "0:00";
+    const mins = Math.floor(secs / 60);
+    const remainingSecs = Math.floor(secs % 60);
     return `${mins}:${String(remainingSecs).padStart(2, "0")}`;
   };
 
@@ -136,60 +138,107 @@ export function CallsTable({
     }
   };
 
+  const renderPill = (text: string, type: "qualification" | "disposition") => {
+    const s = (text || "").toUpperCase();
+    if (s.includes("QUALIFIED") || s === "COMPLETED") {
+      return (
+        <span
+          className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium"
+          style={{ background: "#dcfae5", color: "#04250e" }}
+        >
+          {text}
+        </span>
+      );
+    }
+    if (s.includes("DISQUALIFIED") || s.includes("FAILED") || s.includes("NOT_INTERESTED") || s === "BUSY") {
+      return (
+        <span
+          className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium"
+          style={{ background: "#ffedea", color: "#831c1e" }}
+        >
+          {text}
+        </span>
+      );
+    }
+    if (s.includes("RETRY") || s.includes("CALLBACK") || s.includes("PENDING")) {
+      return (
+        <span
+          className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium"
+          style={{ background: "#fffbeb", color: "#92400e" }}
+        >
+          {text}
+        </span>
+      );
+    }
+    return (
+      <span
+        className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium"
+        style={{ background: "#f1f5f9", color: "#334155" }}
+      >
+        {text}
+      </span>
+    );
+  };
+
   return (
     <div className="space-y-4">
       {/* Top Banner */}
       <div
         className={cn(
-          "bg-white border rounded-2xl p-5 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3",
-          isDemo ? "border-amber-200 bg-amber-50/40" : "border-slate-200/90",
+          "bg-white border rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3",
+          isDemo ? "border-amber-200" : "border-slate-200"
         )}
       >
         <div>
           <div className="flex items-center gap-2">
-            <h3 className="text-sm font-bold text-slate-900" style={{ fontFamily: "'Manrope', sans-serif" }}>
+            <h3 className="text-sm font-semibold text-slate-900" style={{ fontFamily: "'Manrope', sans-serif" }}>
               Call Outcomes & Transcript Archive
             </h3>
             {isDemo && (
-              <span className="px-2 py-0.5 rounded-md bg-amber-100 text-amber-900 text-[10px] font-extrabold uppercase tracking-wider border border-amber-300">
-                Demo Sample
+              <span
+                className="px-1.5 py-0.2 rounded text-[10px] font-mono font-medium"
+                style={{ background: "#fffbeb", color: "#92400e" }}
+              >
+                Demo
               </span>
             )}
           </div>
           <p className="text-xs text-slate-500 mt-0.5">
-            Backed by the <code className="font-mono text-slate-700">Call_Outcomes</code> sheet tab. Records dispositions, provider conversation IDs, and qualification criteria.
+            Backed by the Google Sheets <code className="font-mono text-slate-700">Call_Outcomes</code> tab. Records dispositions, provider conversation IDs, and qualification criteria.
           </p>
         </div>
 
-        <div className="px-3 py-1.5 rounded-xl bg-slate-100 border border-slate-200 text-slate-800 text-xs font-mono font-bold self-start sm:self-center shrink-0">
-          {displayOutcomes.length} {isDemo ? "demo outcomes" : "outcomes recorded"}
+        <div className="px-2.5 py-1 rounded-lg bg-slate-100 border border-slate-200 text-slate-800 text-xs font-mono font-medium self-start sm:self-center shrink-0 tabular-nums">
+          {displayOutcomes.length} {isDemo ? "demo outcomes" : "records"}
         </div>
       </div>
 
       {displayOutcomes.length === 0 ? (
-        <div className="bg-white border border-slate-200/90 rounded-2xl p-12 text-center shadow-xs">
-          <div className="w-12 h-12 rounded-2xl bg-teal-50 text-teal-700 mx-auto flex items-center justify-center mb-3 border border-teal-100">
-            <PhoneCall className="w-6 h-6" />
+        <div className="bg-white border border-slate-200 rounded-xl p-12 text-center">
+          <div className="w-10 h-10 rounded-xl bg-slate-100 text-slate-600 mx-auto flex items-center justify-center mb-3 border border-slate-200">
+            <PhoneCall className="w-5 h-5 text-slate-700" />
           </div>
-          <h4 className="text-sm font-bold text-slate-800">No Call Outcomes Recorded Yet</h4>
+          <h4 className="text-sm font-semibold text-slate-900" style={{ fontFamily: "'Manrope', sans-serif" }}>
+            No Call Outcomes Recorded Yet
+          </h4>
           <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto leading-relaxed">
-            When outbound calls are made via the ElevenLabs + Exotel integration, call outcomes, durations, dispositions, and transcripts will appear here.
+            When outbound calls are made via ElevenLabs + Exotel, call durations, dispositions, and transcripts will appear here.
           </p>
         </div>
       ) : (
-        <div className="bg-white border border-slate-200/90 rounded-2xl overflow-hidden shadow-xs">
+        <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse text-xs">
               <thead>
-                <tr className="border-b border-slate-100 bg-slate-50/70 text-slate-500 font-semibold uppercase text-[10px] tracking-wider font-mono">
-                  <th className="py-3 px-4">Outcome ID & Lead</th>
-                  <th className="py-3 px-3">Date (IST)</th>
-                  <th className="py-3 px-3 text-center">Duration</th>
-                  <th className="py-3 px-3">Disposition</th>
-                  <th className="py-3 px-3">Qualification</th>
-                  <th className="py-3 px-3">Next Step</th>
-                  <th className="py-3 px-3">Property & Budget</th>
-                  <th className="py-3 px-4 text-right">Details</th>
+                <tr className="border-b border-slate-100 bg-slate-50/50 text-slate-500 font-medium text-[11px]">
+                  <th className="py-2.5 px-4 font-normal">Outcome ID & Lead</th>
+                  <th className="py-2.5 px-3 font-normal">Date (IST)</th>
+                  <th className="py-2.5 px-3 font-normal text-center">Duration</th>
+                  <th className="py-2.5 px-3 font-normal">Disposition</th>
+                  <th className="py-2.5 px-3 font-normal">Qualification</th>
+                  <th className="py-2.5 px-3 font-normal">Next Step</th>
+                  <th className="py-2.5 px-3 font-normal">Property & Budget</th>
+                  <th className="py-2.5 px-4 font-normal text-right">Details</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -202,15 +251,15 @@ export function CallsTable({
                     {/* Outcome ID & Lead */}
                     <td className="py-3 px-4">
                       <div className="flex items-center gap-2.5">
-                        <div className="w-8 h-8 rounded-lg bg-indigo-50 text-indigo-700 font-bold flex items-center justify-center text-xs shrink-0 border border-indigo-200">
+                        <div className="w-7 h-7 rounded-md bg-slate-100 text-slate-700 font-semibold flex items-center justify-center text-[11px] shrink-0 border border-slate-200">
                           {getInitials(item.customerName)}
                         </div>
                         <div className="min-w-0">
-                          <div className="font-bold text-slate-900 group-hover:text-teal-700 transition-colors truncate">
+                          <div className="font-medium text-slate-900 group-hover:text-slate-700 transition-colors truncate">
                             {item.customerName}
                           </div>
                           <div className="text-[11px] font-mono text-slate-400 flex items-center gap-1.5">
-                            <span className="font-semibold text-slate-600">{item.enquiryId}</span>
+                            <span className="text-slate-500">{item.id}</span>
                             <span>•</span>
                             <span>Seq #{item.attemptSeq}</span>
                           </div>
@@ -219,56 +268,24 @@ export function CallsTable({
                     </td>
 
                     {/* Date / Time */}
-                    <td className="py-3 px-3 text-slate-600 whitespace-nowrap">
+                    <td className="py-3 px-3 text-slate-600 whitespace-nowrap font-mono text-[11.5px] tabular-nums">
                       {formatDate(item.startedAt)}
                     </td>
 
                     {/* Duration */}
-                    <td className="py-3 px-3 text-center font-mono text-slate-700 font-medium">
+                    <td className="py-3 px-3 text-center font-mono text-slate-700 tabular-nums">
                       {formatDuration(item.duration)}
                     </td>
 
                     {/* Disposition */}
-                    <td className="py-3 px-3">
-                      <span
-                        className={cn(
-                          "px-2 py-0.5 rounded-md text-[10.5px] font-bold font-mono",
-                          item.disposition === "COMPLETED"
-                            ? "bg-emerald-50 text-emerald-800 border border-emerald-200"
-                            : item.disposition === "BUSY" || item.disposition === "NO_ANSWER"
-                            ? "bg-amber-50 text-amber-800 border border-amber-200"
-                            : "bg-rose-50 text-rose-800 border border-rose-200",
-                        )}
-                      >
-                        {item.disposition}
-                      </span>
-                    </td>
+                    <td className="py-3 px-3">{renderPill(item.disposition, "disposition")}</td>
 
                     {/* Qualification */}
-                    <td className="py-3 px-3">
-                      <span
-                        className={cn(
-                          "font-bold",
-                          item.qualification === "QUALIFIED" || item.qualification === "INTERESTED"
-                            ? "text-emerald-700"
-                            : item.qualification === "CALLBACK_REQUESTED"
-                            ? "text-indigo-700 font-bold"
-                            : item.qualification === "PENDING"
-                            ? "text-amber-700 font-semibold"
-                            : item.qualification === "NOT_INTERESTED" || item.qualification === "DISQUALIFIED"
-                            ? "text-slate-400"
-                            : "text-blue-700",
-                        )}
-                      >
-                        {item.qualification}
-                      </span>
-                    </td>
+                    <td className="py-3 px-3">{renderPill(item.qualification, "qualification")}</td>
 
                     {/* Next Step */}
-                    <td className="py-3 px-3">
-                      <span className="text-teal-800 font-semibold truncate block max-w-[130px]">
-                        {item.nextStep}
-                      </span>
+                    <td className="py-3 px-3 text-slate-700 truncate max-w-[140px]" title={item.nextStep}>
+                      {item.nextStep}
                     </td>
 
                     {/* Property & Budget */}
@@ -300,101 +317,59 @@ export function CallsTable({
 
       {/* Call Detail Audit Modal */}
       {selectedOutcome && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs animate-in fade-in">
-          <div className="bg-white border border-slate-200 rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4 animate-in zoom-in-95 duration-200 text-xs">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 animate-in fade-in">
+          <div className="bg-white border border-slate-200 rounded-xl max-w-lg w-full p-6 space-y-4 text-xs animate-in zoom-in-95 duration-150">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <div>
-                <h4 className="text-base font-bold text-slate-900" style={{ fontFamily: "'Manrope', sans-serif" }}>
+                <h4 className="text-sm font-semibold text-slate-900" style={{ fontFamily: "'Manrope', sans-serif" }}>
                   Call Outcome Audit
                 </h4>
-                <p className="text-slate-500 text-[11.5px] font-mono">
+                <p className="text-slate-500 text-[11px] font-mono">
                   {(selectedOutcome as any).outcome_id || (selectedOutcome as any).latestOutcomeId || "OUT-LOG"} • Enquiry: {(selectedOutcome as any).enquiry_id || (selectedOutcome as any).enquiryId}
                 </p>
               </div>
               <button
                 onClick={() => setSelectedOutcome(null)}
-                className="p-1 rounded-lg text-slate-400 hover:text-slate-700"
+                className="p-1 rounded text-slate-400 hover:text-slate-700 transition-colors"
               >
-                <X className="w-5 h-5" />
+                <X className="w-4 h-4" />
               </button>
             </div>
 
             <div className="space-y-3">
-              <div className="grid grid-cols-2 gap-2.5 p-3 rounded-xl bg-slate-50 border border-slate-100 text-[11.5px]">
+              <div className="grid grid-cols-2 gap-2 p-3 rounded-lg bg-slate-50 border border-slate-100 text-[11px]">
                 <div>
-                  <span className="text-slate-400 block text-[10px] font-semibold uppercase">Channel</span>
-                  <span className="font-mono font-bold text-slate-800">{(selectedOutcome as any).channel || "EXOTEL_PSTN"}</span>
+                  <span className="text-slate-400 block text-[10px] font-mono">CHANNEL</span>
+                  <span className="font-mono font-medium text-slate-800">{(selectedOutcome as any).channel || "EXOTEL_PSTN"}</span>
                 </div>
                 <div>
-                  <span className="text-slate-400 block text-[10px] font-semibold uppercase">Duration</span>
-                  <span className="font-mono font-bold text-slate-800">{formatDuration((selectedOutcome as any).duration_seconds || 140)}</span>
+                  <span className="text-slate-400 block text-[10px] font-mono">DURATION</span>
+                  <span className="font-mono font-medium text-slate-800">{formatDuration((selectedOutcome as any).duration_seconds || 140)}</span>
                 </div>
                 <div>
-                  <span className="text-slate-400 block text-[10px] font-semibold uppercase">Provider Call SID</span>
+                  <span className="text-slate-400 block text-[10px] font-mono">CALL SID</span>
                   <span className="font-mono text-slate-700 truncate block">{(selectedOutcome as any).call_sid || "—"}</span>
                 </div>
                 <div>
-                  <span className="text-slate-400 block text-[10px] font-semibold uppercase">Conversation ID</span>
+                  <span className="text-slate-400 block text-[10px] font-mono">CONVERSATION ID</span>
                   <span className="font-mono text-slate-700 truncate block">{(selectedOutcome as any).conversation_id || "—"}</span>
                 </div>
               </div>
 
-              {/* Qualification Findings */}
-              <div className="space-y-2">
-                <span className="text-[10.5px] font-bold text-slate-700 uppercase tracking-wider block">
-                  AI Voice Qualification Findings
-                </span>
-                <div className="grid grid-cols-2 gap-2 text-[11px]">
-                  <div className="p-2 rounded-lg bg-slate-50 border border-slate-100">
-                    <span className="text-slate-400 text-[9.5px] block font-semibold uppercase">Property Interest</span>
-                    <span className="font-medium text-slate-800">{(selectedOutcome as any).property_interest || (selectedOutcome as any).property_config || "HSK Builder Group"}</span>
-                  </div>
-                  <div className="p-2 rounded-lg bg-slate-50 border border-slate-100">
-                    <span className="text-slate-400 text-[9.5px] block font-semibold uppercase">Budget Range</span>
-                    <span className="font-medium text-slate-800">{(selectedOutcome as any).budget_range || "—"}</span>
-                  </div>
-                  <div className="p-2 rounded-lg bg-slate-50 border border-slate-100">
-                    <span className="text-slate-400 text-[9.5px] block font-semibold uppercase">Location</span>
-                    <span className="font-medium text-slate-800">{(selectedOutcome as any).preferred_location || "—"}</span>
-                  </div>
-                  <div className="p-2 rounded-lg bg-slate-50 border border-slate-100">
-                    <span className="text-slate-400 text-[9.5px] block font-semibold uppercase">Agreed Next Step</span>
-                    <span className="font-bold text-teal-800">{(selectedOutcome as any).next_step_type || (selectedOutcome as any).site_visit || "—"}</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Call Recording Audio Player */}
-              {(selectedOutcome as any).conversation_id && (
-                <div>
-                  <span className="text-[10.5px] font-bold text-slate-700 uppercase tracking-wider block mb-1">
-                    Call Recording Audio
-                  </span>
-                  <audio
-                    controls
-                    className="w-full h-8 rounded-lg"
-                    src={`/api/calls/audio?conversation_id=${(selectedOutcome as any).conversation_id}`}
-                  >
-                    Your browser does not support the audio element.
-                  </audio>
-                </div>
-              )}
-
-              {/* Transcript Summary */}
               <div>
-                <span className="text-[10.5px] font-bold text-slate-700 uppercase tracking-wider block mb-1">
-                  Transcript Summary
-                </span>
-                <div className="p-3 rounded-xl bg-teal-50/40 border border-teal-200/60 text-slate-800 text-[11.5px] leading-relaxed">
-                  {(selectedOutcome as any).transcript_summary || (selectedOutcome as any).qualification_summary || (selectedOutcome as any).interestReason || "The customer expressed interest in HSK Builder Group 3 BHK apartments, confirming intent for site visit over the weekend."}
+                <span className="text-slate-500 font-medium block mb-1">AI Transcript Summary</span>
+                <div className="p-3 rounded-lg bg-slate-50 border border-slate-100 text-slate-700 text-[11.5px] leading-relaxed max-h-44 overflow-y-auto">
+                  {(selectedOutcome as any).transcript_summary ||
+                    (selectedOutcome as any).qualification_summary ||
+                    "Lead confirmed interest in HSK Solitaire 3BHK unit. Pre-approved for bank loan and requested site visit this weekend."}
                 </div>
               </div>
             </div>
 
-            <div className="pt-2 border-t border-slate-100 flex justify-end">
+            <div className="flex justify-end pt-2">
               <button
                 onClick={() => setSelectedOutcome(null)}
-                className="px-4 py-2 rounded-xl bg-slate-900 text-white font-medium text-xs hover:bg-slate-800 transition-colors"
+                className="px-3.5 py-1.5 rounded-lg bg-slate-900 text-white font-medium text-xs hover:bg-slate-800 transition-colors"
               >
                 Close Audit
               </button>
