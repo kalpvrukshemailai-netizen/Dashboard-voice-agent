@@ -31,6 +31,7 @@ export type EnquiryStatus =
   | "QUALIFIED"
   | "DISQUALIFIED"
   | "RETRY_SCHEDULED"
+  | "CALLBACK_SCHEDULED"
   | "NOT_ANSWERED"
   | "FAILED_TECHNICAL"
   | "DO_NOT_CALL";
@@ -40,7 +41,9 @@ export type CallDisposition =
   | "COMPLETED"
   | "BUSY"
   | "NO_ANSWER"
+  | "CALLBACK_REQUESTED"
   | "FAILED_TECH"
+  | "DO_NOT_CALL"
   | "UNKNOWN";
 
 export type QualificationStatus =
@@ -48,6 +51,7 @@ export type QualificationStatus =
   | "QUALIFIED"
   | "NOT_INTERESTED"
   | "DISQUALIFIED"
+  | "CALLBACK_REQUESTED"
   | "UNREACHED"
   | "DND"
   | "PENDING";

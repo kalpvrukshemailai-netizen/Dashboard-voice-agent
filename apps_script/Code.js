@@ -855,8 +855,8 @@ function handleClaimNextEnquiry(ss, payload) {
     if ((status === "NEW" || status === "QUEUED" || status === "PENDING_CALL") && (qClass === "FRESH" || !qClass || qClass === "NEW")) {
       freshCandidates.push(item);
     }
-    // Priority 2: Due retries (RETRY_SCHEDULED or PENDING_CALL with next_retry_at <= now)
-    else if ((status === "RETRY_SCHEDULED" || status === "PENDING_CALL") && nextRetryAt && nextRetryAt <= nowIso) {
+    // Priority 2: Due retries (RETRY_SCHEDULED, CALLBACK_SCHEDULED or PENDING_CALL with next_retry_at <= now)
+    else if ((status === "RETRY_SCHEDULED" || status === "CALLBACK_SCHEDULED" || status === "PENDING_CALL") && nextRetryAt && nextRetryAt <= nowIso) {
       retryCandidates.push(item);
     }
     // Priority 3: Overnight backlog (QUEUED with BACKLOG)
@@ -997,7 +997,7 @@ function handleRecordOutcome(ss, payload) {
   var qualStatus = outcome.qualification_status || (outcome.interested ? "INTERESTED" : "UNREACHED");
 
   // Outcome branching logic
-  if (dndRequested) {
+  if (dndRequested || disposition === "DO_NOT_CALL") {
     newStatus = "DO_NOT_CALL";
     qualStatus = "DND";
     newQueueClass = "NONE";
@@ -1017,6 +1017,21 @@ function handleRecordOutcome(ss, payload) {
       newStatus = "NOT_ANSWERED";
       newQueueClass = "NONE";
       qualStatus = "UNREACHED";
+    }
+  } else if (disposition === "CALLBACK_REQUESTED" || disposition === "BUSY_CALLBACK") {
+    // Prospect answered but is busy (meeting, driving) and asked to be called back
+    newStatus = "CALLBACK_SCHEDULED";
+    newQueueClass = "RETRY";
+    qualStatus = outcome.qualification_status || "CALLBACK_REQUESTED";
+    if (outcome.next_retry_at) {
+      nextRetryIso = outcome.next_retry_at;
+    } else {
+      var cbTime = new Date(now.getTime() + 30 * 60 * 1000);
+      if (isCallingWindowOpen(cbTime)) {
+        nextRetryIso = cbTime.toISOString();
+      } else {
+        nextRetryIso = getNextCallingWindowStartIso();
+      }
     }
   } else if (disposition === "FAILED_TECH" || disposition === "FAILED" || disposition === "TECHNICAL_FAILURE") {
     // Technical failure policy: isolated counter; automatic retry disabled by default until explicitly configured
@@ -1042,14 +1057,21 @@ function handleRecordOutcome(ss, payload) {
       }, "RECORD_OUTCOME");
     }
   } else if (disposition === "ANSWERED" || disposition === "COMPLETED" || disposition === "INTERESTED" || disposition === "NOT_INTERESTED") {
-    if (outcome.interested === true || disposition === "INTERESTED") {
+    if (outcome.interested === true || disposition === "INTERESTED" || qualStatus === "QUALIFIED" || qualStatus === "INTERESTED") {
       newStatus = "QUALIFIED";
       qualStatus = "INTERESTED";
-    } else {
+      newQueueClass = "NONE";
+    } else if (outcome.interested === false || disposition === "NOT_INTERESTED" || qualStatus === "NOT_INTERESTED" || qualStatus === "DISQUALIFIED") {
       newStatus = "DISQUALIFIED";
       qualStatus = "NOT_INTERESTED";
+      newQueueClass = "NONE";
+    } else {
+      // Ambiguous / pending qualification - NEVER DISQUALIFY! Keep alive in retry queue
+      newStatus = "RETRY_SCHEDULED";
+      qualStatus = "PENDING";
+      newQueueClass = "RETRY";
+      nextRetryIso = new Date(now.getTime() + 15 * 60 * 1000).toISOString();
     }
-    newQueueClass = "NONE";
   }
 
   // Update Enquiry row (IMMUTABLE CUSTOMER FIELDS ARE PRESERVED)

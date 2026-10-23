@@ -137,17 +137,130 @@ async function handleSync(req: Request) {
       const timeline = getVal("timeline") || "";
       const propertyType = getVal("property_type_preference") || getVal("property_interest") || "";
 
-      // Qualification & Interest
-      const criteriaList = analysis.evaluation_criteria_results_list || [];
-      const leadQualified = criteriaList.find((c: any) => c.criteria_id === "lead_qualified")?.result === "success";
-      const nextStepAgreed = criteriaList.find((c: any) => c.criteria_id === "next_step_agreed")?.result === "success";
-      const isInterested = leadQualified || nextStepAgreed || analysis.call_successful === "success";
+      // Extract transcript text
+      const transcriptList = Array.isArray(detail.transcript) ? detail.transcript : [];
+      const userText = transcriptList
+        .filter((t: any) => t.role === "user")
+        .map((t: any) => t.message || "")
+        .join(" ")
+        .toLowerCase();
 
       const duration = Number(detail.metadata?.call_duration_secs || 0);
       const transcriptSummary =
         analysis.transcript_summary ||
         analysis.call_summary_title ||
         "Live voice conversation completed.";
+      const summaryLower = transcriptSummary.toLowerCase();
+
+      // Qualification & Interest criteria from ElevenLabs
+      const criteriaList = analysis.evaluation_criteria_results_list || [];
+      const leadQualified = criteriaList.find((c: any) => c.criteria_id === "lead_qualified")?.result === "success";
+      const nextStepAgreed = criteriaList.find((c: any) => c.criteria_id === "next_step_agreed")?.result === "success";
+      const callSuccessful = analysis.call_successful === "success";
+
+      // Phone call metadata & result
+      const callResult = (phoneCall.call_result || "").toLowerCase();
+      const isCarrierBusy = callResult === "busy" || callResult === "user_busy";
+      const isCarrierNoAnswer = callResult === "no-answer" || callResult === "no_answer";
+      const isZeroDuration = duration === 0 || transcriptList.length === 0;
+
+      // Conversational signals
+      const isDnd =
+        userText.includes("do not call") ||
+        userText.includes("dnd") ||
+        userText.includes("stop calling") ||
+        userText.includes("block") ||
+        userText.includes("don't call") ||
+        userText.includes("mat call") ||
+        summaryLower.includes("do not call") ||
+        summaryLower.includes("requested not to be contacted");
+
+      const hasBusyKeyword =
+        userText.includes("busy") ||
+        userText.includes("meeting") ||
+        userText.includes("driving") ||
+        userText.includes("drive") ||
+        userText.includes("call back") ||
+        userText.includes("call me later") ||
+        userText.includes("call tomorrow") ||
+        userText.includes("kal phone") ||
+        userText.includes("kal call") ||
+        userText.includes("baad mein") ||
+        userText.includes("baad me") ||
+        userText.includes("abhi nahi") ||
+        userText.includes("not a good time") ||
+        userText.includes("half an hour") ||
+        userText.includes("30 minute") ||
+        userText.includes("1 hour") ||
+        summaryLower.includes("busy in a meeting") ||
+        summaryLower.includes("stated they were busy") ||
+        summaryLower.includes("call back tomorrow") ||
+        summaryLower.includes("asked the agent to call back") ||
+        summaryLower.includes("call back the next day") ||
+        summaryLower.includes("call back in");
+
+      const hasExplicitRefusal =
+        userText.includes("not interested") ||
+        userText.includes("don't want property") ||
+        userText.includes("dont want property") ||
+        userText.includes("wrong number") ||
+        userText.includes("nahi chahiye") ||
+        userText.includes("koi property nahi") ||
+        summaryLower.includes("not interested in property") ||
+        summaryLower.includes("indicated no interest in buying");
+
+      // Intelligent Disposition & Qualification resolution
+      let disposition: "ANSWERED" | "BUSY" | "NO_ANSWER" | "CALLBACK_REQUESTED" | "DO_NOT_CALL" | "NOT_INTERESTED" = "ANSWERED";
+      let isInterested: boolean | null = null;
+      let qualStatus: "QUALIFIED" | "INTERESTED" | "NOT_INTERESTED" | "DISQUALIFIED" | "CALLBACK_REQUESTED" | "UNREACHED" | "DND" | "PENDING" = "PENDING";
+      let nextRetryIso: string | undefined = undefined;
+
+      if (isCarrierBusy) {
+        disposition = "BUSY";
+        isInterested = null;
+        qualStatus = "UNREACHED";
+      } else if (isCarrierNoAnswer || isZeroDuration) {
+        disposition = "NO_ANSWER";
+        isInterested = null;
+        qualStatus = "UNREACHED";
+      } else if (isDnd) {
+        disposition = "DO_NOT_CALL";
+        isInterested = false;
+        qualStatus = "DND";
+      } else if (hasBusyKeyword && !hasExplicitRefusal) {
+        // Prospect answered but is busy (in meeting, driving, asked to call back)
+        disposition = "CALLBACK_REQUESTED";
+        isInterested = null; // NEVER false!
+        qualStatus = "CALLBACK_REQUESTED";
+
+        const now = new Date();
+        if (userText.includes("tomorrow") || userText.includes("kal") || summaryLower.includes("tomorrow") || summaryLower.includes("next day")) {
+          const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+          tomorrow.setHours(10, 30, 0, 0); // 10:30 AM next day
+          nextRetryIso = tomorrow.toISOString();
+        } else if (userText.includes("half an hour") || userText.includes("30 min") || summaryLower.includes("half an hour")) {
+          nextRetryIso = new Date(now.getTime() + 30 * 60 * 1000).toISOString();
+        } else if (userText.includes("1 hour") || userText.includes("one hour")) {
+          nextRetryIso = new Date(now.getTime() + 60 * 60 * 1000).toISOString();
+        } else {
+          nextRetryIso = new Date(now.getTime() + 30 * 60 * 1000).toISOString();
+        }
+      } else if (leadQualified || nextStepAgreed || callSuccessful) {
+        disposition = "ANSWERED";
+        isInterested = true;
+        qualStatus = "QUALIFIED";
+      } else if (hasExplicitRefusal) {
+        disposition = "NOT_INTERESTED";
+        isInterested = false;
+        qualStatus = "NOT_INTERESTED";
+      } else {
+        // Conversation ended without explicit qualification or refusal (e.g. abrupt drop)
+        // CRITICAL: Keep alive, mark PENDING, schedule retry in 15 mins!
+        disposition = "ANSWERED";
+        isInterested = null;
+        qualStatus = "PENDING";
+        nextRetryIso = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+      }
 
       const outcomeId = generateOutcomeId(matchedEnquiry.enquiry_id, matchedEnquiry.attempt_sequence_count || 1);
 
@@ -161,9 +274,10 @@ async function handleSync(req: Request) {
         conversation_id: convId,
         call_start_time: new Date((detail.metadata?.start_time_unix_secs || Date.now() / 1000) * 1000).toISOString(),
         duration_seconds: duration,
-        call_disposition: "ANSWERED",
+        call_disposition: disposition,
         interested: isInterested,
-        qualification_status: isInterested ? "INTERESTED" : "NOT_INTERESTED",
+        qualification_status: qualStatus,
+        next_retry_at: nextRetryIso,
         property_config: propertyType,
         budget_range: budget,
         preferred_location: location,

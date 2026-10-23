@@ -79,7 +79,7 @@ export function CallsTable({
             startedAt: o.call_started_at || o.call_start_time || o.recorded_at,
             duration: o.duration_seconds || 0,
             disposition: o.disposition || o.call_disposition || "COMPLETED",
-            qualification: o.qualification_status || (o.interested ? "QUALIFIED" : "NOT_INTERESTED"),
+            qualification: o.qualification_status || (o.interested === true ? "QUALIFIED" : o.interested === false ? "NOT_INTERESTED" : "PENDING"),
             property: o.property_interest || o.property_config || "—",
             budget: o.budget_range || "—",
             location: o.preferred_location || "—",
@@ -103,7 +103,7 @@ export function CallsTable({
             startedAt: l.calledAt || "Today",
             duration: 142,
             disposition: l.latestDisposition || "COMPLETED",
-            qualification: l.interestStatus || (l.interested ? "QUALIFIED" : "NOT_INTERESTED"),
+            qualification: l.interestStatus || (l.interested === true ? "QUALIFIED" : l.interested === false ? "NOT_INTERESTED" : "PENDING"),
             property: l.propertyInterest || "HSK Builder Group",
             budget: l.budgetRange || "—",
             location: l.preferredLocation || "—",
@@ -251,7 +251,11 @@ export function CallsTable({
                           "font-bold",
                           item.qualification === "QUALIFIED" || item.qualification === "INTERESTED"
                             ? "text-emerald-700"
-                            : item.qualification === "NOT_INTERESTED"
+                            : item.qualification === "CALLBACK_REQUESTED"
+                            ? "text-indigo-700 font-bold"
+                            : item.qualification === "PENDING"
+                            ? "text-amber-700 font-semibold"
+                            : item.qualification === "NOT_INTERESTED" || item.qualification === "DISQUALIFIED"
                             ? "text-slate-400"
                             : "text-blue-700",
                         )}

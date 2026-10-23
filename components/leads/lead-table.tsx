@@ -274,6 +274,8 @@ export function LeadTable({
                           ? "bg-emerald-100 text-emerald-900"
                           : item.status === "CALLING"
                           ? "bg-amber-100 text-amber-900 animate-pulse font-bold"
+                          : item.status === "CALLBACK_SCHEDULED"
+                          ? "bg-indigo-100 text-indigo-900 border border-indigo-200 font-bold"
                           : item.status === "RETRY_SCHEDULED"
                           ? "bg-blue-100 text-blue-900"
                           : item.status === "NOT_ANSWERED"
@@ -313,7 +315,11 @@ export function LeadTable({
                         "font-medium",
                         item.qualification === "QUALIFIED" || item.qualification === "INTERESTED"
                           ? "text-emerald-700 font-bold"
-                          : item.qualification === "NOT_INTERESTED"
+                          : item.qualification === "CALLBACK_REQUESTED"
+                          ? "text-indigo-700 font-bold"
+                          : item.qualification === "PENDING"
+                          ? "text-amber-700 font-semibold"
+                          : item.qualification === "NOT_INTERESTED" || item.qualification === "DISQUALIFIED"
                           ? "text-slate-400"
                           : "text-slate-500",
                       )}
