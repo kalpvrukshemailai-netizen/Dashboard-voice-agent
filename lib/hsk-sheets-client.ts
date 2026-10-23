@@ -112,7 +112,40 @@ export class HskSheetsClient {
   }
 
   public async getEnquiries(options?: { status?: string; queue_class?: string; limit?: number }) {
-    return this.execute("getEnquiries", options || {});
+    try {
+      return await this.execute("getEnquiries", options || {});
+    } catch (err: any) {
+      if (this.spreadsheetId && !this.useTestDouble) {
+        try {
+          const exportUrl = `https://docs.google.com/spreadsheets/d/${this.spreadsheetId}/export?format=csv&gid=0`;
+          const res = await fetch(exportUrl, { cache: "no-store" });
+          if (res.ok) {
+            const csv = await res.text();
+            const lines = csv.trim().split("\n");
+            if (lines.length > 1) {
+              const headers = lines[0].split(",").map((h) => h.replace(/"/g, "").trim());
+              let enquiries: any[] = [];
+              for (let i = 1; i < lines.length; i++) {
+                if (!lines[i].trim()) continue;
+                const row = lines[i].split(",").map((c) => c.replace(/"/g, "").trim());
+                const record: Record<string, any> = {};
+                headers.forEach((h, idx) => {
+                  record[h] = row[idx] || "";
+                });
+                if (options?.status && record.current_status !== options.status) continue;
+                if (options?.queue_class && record.queue_class !== options.queue_class) continue;
+                enquiries.push(record);
+              }
+              if (options?.limit) enquiries = enquiries.slice(0, options.limit);
+              return { success: true, count: enquiries.length, enquiries, source: "google_sheet_direct" };
+            }
+          }
+        } catch {
+          // Fall through
+        }
+      }
+      throw err;
+    }
   }
 
   public async getCallOutcomes(options?: { enquiry_id?: string; limit?: number }) {

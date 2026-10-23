@@ -360,6 +360,22 @@ export function CallsTable({
                 </div>
               </div>
 
+              {/* Call Recording Audio Player */}
+              {(selectedOutcome as any).conversation_id && (
+                <div>
+                  <span className="text-[10.5px] font-bold text-slate-700 uppercase tracking-wider block mb-1">
+                    Call Recording Audio
+                  </span>
+                  <audio
+                    controls
+                    className="w-full h-8 rounded-lg"
+                    src={`/api/calls/audio?conversation_id=${(selectedOutcome as any).conversation_id}`}
+                  >
+                    Your browser does not support the audio element.
+                  </audio>
+                </div>
+              )}
+
               {/* Transcript Summary */}
               <div>
                 <span className="text-[10.5px] font-bold text-slate-700 uppercase tracking-wider block mb-1">

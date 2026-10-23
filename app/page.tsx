@@ -90,6 +90,9 @@ export default function DashboardPage() {
     setErrorState(null);
 
     try {
+      // 0. Auto-sync any completed ElevenLabs calls into Google Sheets
+      await fetch("/api/calls/sync", { method: "POST" }).catch(() => null);
+
       // 1. Fetch Enquiries
       const enqPromise = fetch(isExplicitDemo ? "/api/leads?demo=true" : "/api/enquiries", {
         method: "GET",
@@ -202,9 +205,13 @@ export default function DashboardPage() {
     }));
   }
 
-  // Initial load
+  // Initial load and periodic 15-second live sync
   useEffect(() => {
     loadDashboardData(true);
+    const interval = setInterval(() => {
+      loadDashboardData(true);
+    }, 15000);
+    return () => clearInterval(interval);
   }, [loadDashboardData]);
 
   // Safe Synthetic Test Enquiry Submission (Pipeline Verification)

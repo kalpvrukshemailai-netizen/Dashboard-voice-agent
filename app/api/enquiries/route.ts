@@ -14,6 +14,7 @@ import {
   isCallingWindowOpen,
   getNextWindowOpeningTime,
 } from "@/lib/hsk-sheets-schema";
+import { initiateExotelOutboundCall } from "@/lib/elevenlabs-exotel-dialer";
 
 export async function POST(req: Request) {
   try {
@@ -98,13 +99,36 @@ export async function POST(req: Request) {
       );
     }
 
-    // 4. Fast-Path Opportunity Evaluation
-    // If inside calling window and not a duplicate, check if dialer is available for immediate intake
-    let fastPathEligible = false;
+    // 4. Automatic Outbound Dialing (Fast-Path)
+    let callInitiated = false;
+    let callDetails: any = null;
+
     if (inCallingWindow && !result.is_duplicate) {
       const stateRes = await hskSheetsClient.getSystemState();
       const isLocked = stateRes?.data?.DIALER_LOCK?.locked === true;
-      fastPathEligible = !isLocked;
+
+      if (!isLocked) {
+        const sessionId = `SES-${result.enquiry_id}-${Date.now()}`;
+        await hskSheetsClient.acquireDialerLock(sessionId, result.enquiry_id);
+
+        const dialRes = await initiateExotelOutboundCall({
+          enquiry_id: result.enquiry_id,
+          phone_number: cleanPhone,
+          customer_name: rawName,
+          project_interest: projectInterest,
+        });
+
+        if (dialRes.success) {
+          callInitiated = true;
+          callDetails = {
+            conversation_id: dialRes.conversation_id,
+            call_sid: dialRes.call_sid,
+          };
+        } else {
+          // If carrier initiation failed, safely release the dialer lock
+          await hskSheetsClient.releaseDialerLock(sessionId, true, "AUTO_DIAL_FAILED");
+        }
+      }
     }
 
     return NextResponse.json({
@@ -115,9 +139,12 @@ export async function POST(req: Request) {
       current_status: result.current_status,
       in_calling_window: inCallingWindow,
       next_calling_window_opens_at: nextWindowOpening,
-      fast_path_eligible: fastPathEligible,
+      call_initiated: callInitiated,
+      call_details: callDetails,
       message: result.is_duplicate
         ? "Existing pending enquiry recognized"
+        : callInitiated
+        ? "Enquiry received. Outbound call automatically placed via ElevenLabs & Exotel."
         : inCallingWindow
         ? "Enquiry received. Added to FRESH queue for outbound calling."
         : "Enquiry received outside calling hours (9 AM - 10 PM IST). Added to overnight BACKLOG queue.",

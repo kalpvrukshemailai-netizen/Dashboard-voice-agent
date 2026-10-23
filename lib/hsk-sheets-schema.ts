@@ -345,8 +345,9 @@ export function getNextWindowOpeningTime(date: Date = new Date()): Date {
 /**
  * Normalizes phone numbers to standard E.164 (+91XXXXXXXXXX for 10-digit Indian numbers)
  */
-export function normalizePhoneNumber(raw: string): string {
-  const cleaned = raw.replace(/[^\d+]/g, "").trim();
+export function normalizePhoneNumber(raw: string | number | null | undefined): string {
+  if (raw === null || raw === undefined) return "";
+  const cleaned = String(raw).replace(/[^\d+]/g, "").trim();
   if (!cleaned) return "";
   if (cleaned.startsWith("+")) return cleaned;
   if (cleaned.length === 10) return `+91${cleaned}`;
