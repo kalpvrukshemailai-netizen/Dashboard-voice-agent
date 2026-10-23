@@ -50,7 +50,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
           >
             {t.type === "success" && <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />}
             {t.type === "error" && <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />}
-            {t.type === "info" && <Info className="w-4 h-4 text-indigo-600 shrink-0" />}
+            {t.type === "info" && <Info className="w-4 h-4 text-teal-700 shrink-0" />}
             <span className="flex-1 leading-snug">{t.message}</span>
             <button
               onClick={() => removeToast(t.id)}

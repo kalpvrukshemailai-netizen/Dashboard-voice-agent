@@ -44,7 +44,7 @@ export function QueueSummaryCard({
   const freshCount = enquiries.filter(
     (e) =>
       e.queue_class === "FRESH" &&
-      (e.current_status === "NEW" || e.current_status === "QUEUED"),
+      (e.current_status === "NEW" || e.current_status === "QUEUED")
   ).length;
 
   // Due retries (retry scheduled, timer elapsed)
@@ -52,7 +52,7 @@ export function QueueSummaryCard({
     (e) =>
       e.current_status === "RETRY_SCHEDULED" &&
       e.next_retry_at &&
-      new Date(e.next_retry_at).getTime() <= now,
+      new Date(e.next_retry_at).getTime() <= now
   ).length;
 
   // Pending retries waiting for timer
@@ -60,30 +60,30 @@ export function QueueSummaryCard({
     (e) =>
       e.current_status === "RETRY_SCHEDULED" &&
       e.next_retry_at &&
-      new Date(e.next_retry_at).getTime() > now,
+      new Date(e.next_retry_at).getTime() > now
   ).length;
 
   // Overnight backlog (received 10 PM - 9 AM)
   const backlogCount = enquiries.filter(
-    (e) => e.queue_class === "BACKLOG" && (e.current_status === "NEW" || e.current_status === "QUEUED"),
+    (e) => e.queue_class === "BACKLOG" && (e.current_status === "NEW" || e.current_status === "QUEUED")
   ).length;
 
   const isLocked = dialerLock?.locked === true;
 
   return (
-    <div className="bg-white border border-slate-200/90 rounded-2xl p-5 shadow-xs space-y-4">
+    <div className="bg-white border border-slate-200/90 rounded-2xl p-6 shadow-2xs space-y-5">
       {/* ── Header ── */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-xl bg-slate-900 text-white flex items-center justify-center">
-            <Radio className="w-4 h-4 text-teal-400" />
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-200/80">
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 rounded-xl bg-slate-950 text-white flex items-center justify-center shadow-2xs">
+            <Radio className="w-4 h-4 text-emerald-400" />
           </div>
           <div>
-            <h3 className="text-sm font-bold text-slate-900" style={{ fontFamily: "'Manrope', sans-serif" }}>
-              Queue Status & Dialer Concurrency
+            <h3 className="text-base font-extrabold text-slate-950 tracking-tight" style={{ fontFamily: "'Manrope', sans-serif" }}>
+              Queue Telemetry &amp; Concurrency Dispatcher
             </h3>
-            <p className="text-[11.5px] text-slate-500">
-              Deterministic priority: Newest Fresh → Due Retries (2-min) → Overnight Backlog
+            <p className="text-xs text-slate-500">
+              Deterministic priority: 1. Fresh Intake (&lt;2 min) → 2. Due Retries → 3. Overnight Backlog
             </p>
           </div>
         </div>
@@ -91,81 +91,101 @@ export function QueueSummaryCard({
         {/* Dialer Lock Badge */}
         <div
           className={cn(
-            "inline-flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-semibold self-start sm:self-auto",
+            "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold self-start sm:self-auto border shadow-2xs",
             isLocked
-              ? "bg-amber-50 text-amber-900 border border-amber-300"
-              : "bg-emerald-50 text-emerald-900 border border-emerald-300",
+              ? "bg-[#451a03] text-[#fef3c7] border-[#fde68a]"
+              : "bg-[#04250e] text-[#dcfae5] border-[#bbf7d0]"
           )}
         >
           {isLocked ? (
             <>
-              <Lock className="w-3.5 h-3.5 text-amber-600 animate-pulse" />
-              <span>Call in Progress ({dialerLock?.enquiry_id || dialerLock?.session_id || "Active"})</span>
+              <Lock className="w-3.5 h-3.5 text-amber-300" />
+              <span className="font-mono text-xs">
+                Lock Active: {dialerLock?.enquiry_id || "Calling"}
+              </span>
             </>
           ) : (
             <>
-              <Unlock className="w-3.5 h-3.5 text-emerald-600" />
-              <span>Dialer Idle (Concurrency Lock Available)</span>
+              <Unlock className="w-3.5 h-3.5 text-emerald-300" />
+              <span className="text-xs">Dialer Concurrency Idle</span>
             </>
           )}
         </div>
       </div>
 
       {/* ── 3-Tier Queue Breakdown ── */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         {/* Tier 1: FRESH */}
-        <div className="p-3.5 rounded-xl border border-emerald-200/80 bg-emerald-50/30 flex items-start justify-between">
+        <div className="p-4.5 rounded-xl border border-slate-200/90 bg-slate-50/60 flex items-start justify-between shadow-2xs">
           <div>
-            <div className="flex items-center gap-1.5 text-emerald-800 text-xs font-bold uppercase tracking-wider mb-1">
+            <div className="flex items-center gap-1.5 text-slate-500 text-[10.5px] font-bold uppercase tracking-wider mb-1.5">
               <Flame className="w-3.5 h-3.5 text-emerald-600" />
               <span>1. Fresh Intake</span>
             </div>
-            <div className="text-2xl font-extrabold text-emerald-950 font-mono">
+            <div
+              className="text-3xl font-extrabold text-slate-950 tabular-nums tracking-tight"
+              style={{ fontFamily: "'Manrope', sans-serif" }}
+            >
               {freshCount}
             </div>
-            <p className="text-[11px] text-emerald-700 mt-0.5">
-              Targeted within 2m
+            <p className="text-xs text-slate-500 mt-1">
+              Targeted &lt;2 min from web intake
             </p>
           </div>
-          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
+          <span
+            className="text-[10px] font-mono px-2 py-0.5 rounded font-bold uppercase tracking-wider border border-[#bbf7d0]"
+            style={{ background: "#dcfae5", color: "#04250e" }}
+          >
             Priority 1
           </span>
         </div>
 
         {/* Tier 2: RETRY */}
-        <div className="p-3.5 rounded-xl border border-blue-200/80 bg-blue-50/30 flex items-start justify-between">
+        <div className="p-4.5 rounded-xl border border-slate-200/90 bg-slate-50/60 flex items-start justify-between shadow-2xs">
           <div>
-            <div className="flex items-center gap-1.5 text-blue-800 text-xs font-bold uppercase tracking-wider mb-1">
-              <RotateCcw className="w-3.5 h-3.5 text-blue-600" />
+            <div className="flex items-center gap-1.5 text-slate-500 text-[10.5px] font-bold uppercase tracking-wider mb-1.5">
+              <RotateCcw className="w-3.5 h-3.5 text-slate-600" />
               <span>2. Due Retries</span>
             </div>
-            <div className="text-2xl font-extrabold text-blue-950 font-mono">
+            <div
+              className="text-3xl font-extrabold text-slate-950 tabular-nums tracking-tight"
+              style={{ fontFamily: "'Manrope', sans-serif" }}
+            >
               {dueRetryCount}
             </div>
-            <p className="text-[11px] text-blue-700 mt-0.5">
-              {pendingRetryCount > 0 ? `+${pendingRetryCount} pending delay` : "Max 3 customer attempts"}
+            <p className="text-xs text-slate-500 mt-1">
+              {pendingRetryCount > 0 ? `+${pendingRetryCount} waiting timer` : "2-min backoff due"}
             </p>
           </div>
-          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-100 text-blue-800">
+          <span
+            className="text-[10px] font-mono px-2 py-0.5 rounded font-bold uppercase tracking-wider border border-[#bae6fd]"
+            style={{ background: "#e0f2fe", color: "#0369a1" }}
+          >
             Priority 2
           </span>
         </div>
 
         {/* Tier 3: BACKLOG */}
-        <div className="p-3.5 rounded-xl border border-amber-200/80 bg-amber-50/30 flex items-start justify-between">
+        <div className="p-4.5 rounded-xl border border-slate-200/90 bg-slate-50/60 flex items-start justify-between shadow-2xs">
           <div>
-            <div className="flex items-center gap-1.5 text-amber-800 text-xs font-bold uppercase tracking-wider mb-1">
-              <Archive className="w-3.5 h-3.5 text-amber-600" />
+            <div className="flex items-center gap-1.5 text-slate-500 text-[10.5px] font-bold uppercase tracking-wider mb-1.5">
+              <Archive className="w-3.5 h-3.5 text-slate-600" />
               <span>3. Overnight Backlog</span>
             </div>
-            <div className="text-2xl font-extrabold text-amber-950 font-mono">
+            <div
+              className="text-3xl font-extrabold text-slate-950 tabular-nums tracking-tight"
+              style={{ fontFamily: "'Manrope', sans-serif" }}
+            >
               {backlogCount}
             </div>
-            <p className="text-[11px] text-amber-700 mt-0.5">
-              Processed 9 AM IST (oldest first)
+            <p className="text-xs text-slate-500 mt-1">
+              Processed 9 AM IST daily
             </p>
           </div>
-          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800">
+          <span
+            className="text-[10px] font-mono px-2 py-0.5 rounded font-bold uppercase tracking-wider border border-slate-200"
+            style={{ background: "#f1f5f9", color: "#334155" }}
+          >
             Priority 3
           </span>
         </div>
@@ -174,12 +194,12 @@ export function QueueSummaryCard({
       {/* ── Operational Footer: Calling Window & Fast Action ── */}
       <div className="pt-2 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
         <div className="flex items-center gap-2 text-slate-600">
-          <Clock className="w-4 h-4 text-slate-400" />
+          <Clock className="w-3.5 h-3.5 text-slate-400" />
           <span>
-            Calling Hours: <strong className="text-slate-800">9:00 AM – 10:00 PM IST</strong> (Daily)
+            Calling Hours: <strong className="text-slate-800">9:00 AM – 10:00 PM IST</strong>
             {!isCallingWindowOpen && nextWindowOpensAt && (
-              <span className="text-amber-700 ml-1 font-medium">
-                — Closed, opens at {new Date(nextWindowOpensAt).toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit" })} IST
+              <span className="text-amber-700 ml-1 font-mono text-[11px]">
+                (Next window: {nextWindowOpensAt})
               </span>
             )}
           </span>
@@ -189,10 +209,10 @@ export function QueueSummaryCard({
           <button
             onClick={onTriggerWorker}
             disabled={isTriggering}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-medium text-xs transition-colors self-start sm:self-auto disabled:opacity-50"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-white font-medium text-xs transition-colors self-start sm:self-auto disabled:opacity-60 shadow-2xs"
           >
-            <RefreshCw className={cn("w-3.5 h-3.5", isTriggering && "animate-spin")} />
-            <span>{isTriggering ? "Processing Queue..." : "Trigger Queue Tick"}</span>
+            <RefreshCw className={cn("w-3 h-3 text-emerald-400", isTriggering && "animate-spin")} />
+            <span>{isTriggering ? "Evaluating Queue..." : "Run Queue Evaluation Tick"}</span>
           </button>
         )}
       </div>

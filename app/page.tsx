@@ -221,7 +221,7 @@ export default function DashboardPage() {
         }).then((r) => r.json()).catch(() => null);
 
         if (workerRes?.action === "CALL_INITIATED") {
-          toast(`📞 Auto-Dialer: Placed live outbound call to ${workerRes.enquiry_id}!`, "success");
+          toast(`Auto-Dialer: Placed live outbound call to ${workerRes.enquiry_id}!`, "success");
         }
 
         // 3. Refresh dashboard state
