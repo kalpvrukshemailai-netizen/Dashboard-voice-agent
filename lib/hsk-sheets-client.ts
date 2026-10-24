@@ -53,27 +53,50 @@ export class HskSheetsClient {
       ...authPayload,
     };
 
-    const response = await fetch(this.appsScriptUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(bodyPayload),
-      cache: "no-store",
-      redirect: "follow",
-    });
+    let attempts = 0;
+    const maxAttempts = 2;
+    let lastError: Error | null = null;
 
-    const text = await response.text();
-    let data: Record<string, unknown> = {};
-    try {
-      data = JSON.parse(text) as Record<string, unknown>;
-    } catch {
-      throw new Error(`Google Apps Script returned invalid JSON (HTTP ${response.status}): ${text.slice(0, 150)}`);
+    while (attempts < maxAttempts) {
+      attempts++;
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 20000); // 20s timeout per attempt
+
+      try {
+        const response = await fetch(this.appsScriptUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(bodyPayload),
+          cache: "no-store",
+          redirect: "follow",
+          signal: controller.signal,
+        });
+
+        clearTimeout(timeoutId);
+
+        const text = await response.text();
+        let data: Record<string, unknown> = {};
+        try {
+          data = JSON.parse(text) as Record<string, unknown>;
+        } catch {
+          throw new Error(`Google Apps Script returned invalid JSON (HTTP ${response.status}): ${text.slice(0, 150)}`);
+        }
+
+        if (!response.ok || data.success === false) {
+          throw new Error(String(data.error || `Apps Script request failed (HTTP ${response.status})`));
+        }
+
+        return data;
+      } catch (err: any) {
+        clearTimeout(timeoutId);
+        lastError = err;
+        if (attempts < maxAttempts) {
+          await new Promise((r) => setTimeout(r, 600)); // Brief backoff
+        }
+      }
     }
 
-    if (!response.ok || data.success === false) {
-      throw new Error(String(data.error || `Apps Script request failed (HTTP ${response.status})`));
-    }
-
-    return data;
+    throw lastError || new Error("Google Apps Script request failed");
   }
 
   private executeOnTestDouble(action: string, payload: Record<string, unknown>): any {

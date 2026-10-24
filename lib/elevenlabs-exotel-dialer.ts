@@ -27,6 +27,32 @@ export interface OutboundDialResult {
   quarantined_for_reconciliation?: boolean;
 }
 
+let cachedResolvedPhoneNumberId: string | null = null;
+
+async function resolveActivePhoneNumberId(apiKey: string, agentId?: string): Promise<string | null> {
+  if (cachedResolvedPhoneNumberId) return cachedResolvedPhoneNumberId;
+  try {
+    const res = await fetch("https://api.elevenlabs.io/v1/convai/phone-numbers", {
+      headers: { "xi-api-key": apiKey },
+      cache: "no-store",
+    });
+    if (res.ok) {
+      const numbers: any[] = await res.json();
+      const matched =
+        numbers.find((n) => n.assigned_agent?.agent_id === agentId && n.supports_outbound) ||
+        numbers.find((n) => n.supports_outbound) ||
+        numbers[0];
+      if (matched?.phone_number_id) {
+        cachedResolvedPhoneNumberId = matched.phone_number_id;
+        return matched.phone_number_id;
+      }
+    }
+  } catch {
+    // Return null on failure
+  }
+  return null;
+}
+
 export async function initiateExotelOutboundCall(
   params: OutboundDialParams,
 ): Promise<OutboundDialResult> {
@@ -47,7 +73,11 @@ export async function initiateExotelOutboundCall(
 
   const apiKey = process.env.ELEVENLABS_API_KEY;
   const agentId = process.env.ELEVENLABS_AGENT_ID || process.env.NEXT_PUBLIC_ELEVENLABS_AGENT_ID;
-  const agentPhoneNumberId = process.env.ELEVENLABS_AGENT_PHONE_NUMBER_ID;
+  let agentPhoneNumberId = process.env.ELEVENLABS_AGENT_PHONE_NUMBER_ID || cachedResolvedPhoneNumberId;
+
+  if (!agentPhoneNumberId && apiKey) {
+    agentPhoneNumberId = (await resolveActivePhoneNumberId(apiKey, agentId)) || undefined;
+  }
 
   // 2. Check for missing credentials (Safe Test Double Mode)
   const isMockMode =
@@ -72,7 +102,7 @@ export async function initiateExotelOutboundCall(
 
   // 3. Official ElevenLabs Exotel Endpoint Call
   const endpoint = "https://api.elevenlabs.io/v1/convai/exotel/outbound-call";
-  const requestBody = {
+  const requestBody: any = {
     agent_id: agentId,
     agent_phone_number_id: agentPhoneNumberId,
     to_number: cleanPhone,
@@ -91,7 +121,7 @@ export async function initiateExotelOutboundCall(
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 15000); // 15-second timeout
 
-    const response = await fetch(endpoint, {
+    let response = await fetch(endpoint, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -103,7 +133,7 @@ export async function initiateExotelOutboundCall(
 
     clearTimeout(timeoutId);
 
-    const responseText = await response.text();
+    let responseText = await response.text();
     let data: any = {};
     try {
       data = JSON.parse(responseText);
@@ -117,6 +147,33 @@ export async function initiateExotelOutboundCall(
         : Array.isArray(data.detail)
         ? data.detail.map((d: any) => d.msg || JSON.stringify(d)).join(", ")
         : data.detail?.message || data.error || data.message || `HTTP ${response.status}`;
+
+      // Self-healing: If phone number ID was recreated or deleted in ElevenLabs, auto-resolve and retry once
+      if (errDetail.toLowerCase().includes("not found") && apiKey) {
+        cachedResolvedPhoneNumberId = null;
+        const freshId = await resolveActivePhoneNumberId(apiKey, agentId);
+        if (freshId && freshId !== agentPhoneNumberId) {
+          agentPhoneNumberId = freshId;
+          requestBody.agent_phone_number_id = freshId;
+          const retryRes = await fetch(endpoint, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "xi-api-key": apiKey!,
+            },
+            body: JSON.stringify(requestBody),
+          });
+          if (retryRes.ok) {
+            const retryData = await retryRes.json();
+            return {
+              success: true,
+              conversation_id: retryData.conversation_id || retryData.conversationId,
+              call_sid: retryData.call_sid || retryData.callSid,
+            };
+          }
+        }
+      }
+
       return {
         success: false,
         status_code: response.status,

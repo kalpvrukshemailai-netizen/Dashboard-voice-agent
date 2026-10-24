@@ -11,8 +11,9 @@
 
 const CRON_SECRET = process.env.CRON_SECRET || "c7b9e0f34a81467295d2c88f115a3e9b";
 const isProdFlag = process.argv.includes("--prod") || process.argv.includes("--vercel");
-const VERCEL_PRODUCTION_URL = "https://dashboard-voice-agent-git-main-shauryap001s-projects.vercel.app";
-const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL || (isProdFlag ? VERCEL_PRODUCTION_URL : "http://localhost:3000");
+const BASE_URL = isProdFlag
+  ? (process.env.NEXT_PUBLIC_BASE_URL || VERCEL_PRODUCTION_URL)
+  : (process.env.LOCAL_BASE_URL || "http://localhost:3000");
 
 let isRunning = false;
 
