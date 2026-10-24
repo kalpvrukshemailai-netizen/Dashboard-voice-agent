@@ -10,7 +10,7 @@ import { NextResponse } from "next/server";
 import { hskSheetsClient } from "@/lib/hsk-sheets-client";
 import { isCallingWindowOpen, getNextWindowOpeningTime } from "@/lib/hsk-sheets-schema";
 
-export async function GET() {
+export async function GET(req?: Request) {
   const spreadsheetId =
     process.env.GOOGLE_SPREADSHEET_ID || "1a4sfmK6faPs9QR3-_0fQzksn49epumoTbzwas2tnfv8";
   const appsScriptUrl = process.env.GOOGLE_APPS_SCRIPT_URL || "";
@@ -88,12 +88,23 @@ export async function GET() {
     // If state call fails, dialer lock is unknown or unlocked
   }
 
-  // 4. Host Environment Status
-  const isLocalhost = true; // Next.js dashboard is local
+  // 4. Host Environment & Deployment Detection
+  const host = req?.headers?.get("x-forwarded-host") || req?.headers?.get("host") || "";
+  const isLocalhost = host.includes("localhost") || host.includes("127.0.0.1") || (!host && !process.env.VERCEL_URL);
+  const proto = req?.headers?.get("x-forwarded-proto") || (isLocalhost ? "http" : "https");
+  const baseUrl =
+    process.env.NEXT_PUBLIC_BASE_URL ||
+    (host ? `${proto}://${host}` : process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
 
   return NextResponse.json({
     success: true,
     timestamp: new Date().toISOString(),
+    deployment: {
+      platform: process.env.VERCEL ? "Vercel Cloud" : "Node.js Local",
+      host: host || "localhost",
+      base_url: baseUrl,
+      is_public: !isLocalhost,
+    },
     calling_hours: {
       open: inCallingWindow,
       window: "9:00 AM – 10:00 PM IST (Daily)",
@@ -131,17 +142,18 @@ export async function GET() {
       },
       webhook_handler: {
         status: hasWebhookSecret ? "Configured" : "Pending Secret",
-        endpoint: "/api/webhooks/elevenlabs",
+        endpoint: `${baseUrl}/api/webhooks/elevenlabs`,
         signature_verification: "HMAC SHA-256 (ElevenLabs-Signature)",
         has_signing_secret: hasWebhookSecret,
       },
       scheduler_worker: {
         status: hasCronSecret ? "Protected" : "Unprotected",
-        endpoint: "/api/scheduler/worker",
+        endpoint: `${baseUrl}/api/scheduler/worker`,
         is_local_only: isLocalhost,
         warning: isLocalhost
           ? "Dashboard is running on localhost. Do NOT add Time-Driven Trigger in Google Apps Script until deployed to a public URL."
           : null,
+        google_apps_script_trigger_url: `${baseUrl}/api/scheduler/worker`,
       },
       dialer_lock: {
         status: dialerLockState.locked ? "LOCKED" : "IDLE",

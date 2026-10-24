@@ -22,8 +22,11 @@ export async function POST(req: Request) {
     // 1. Enforce Server-Side Authorization (Bearer token or same-origin dashboard trigger)
     const authHeader = req.headers.get("authorization");
     const referer = req.headers.get("referer") || "";
-    const host = req.headers.get("host") || "";
-    const isSameOrigin = (host && referer.includes(host)) || req.headers.get("sec-fetch-site") === "same-origin";
+    const origin = req.headers.get("origin") || "";
+    const host = req.headers.get("x-forwarded-host") || req.headers.get("host") || "";
+    const isSameOrigin =
+      (host && (referer.includes(host) || origin.includes(host))) ||
+      req.headers.get("sec-fetch-site") === "same-origin";
 
     if (!verifyWorkerAuthorization(authHeader) && !isSameOrigin) {
       return NextResponse.json(

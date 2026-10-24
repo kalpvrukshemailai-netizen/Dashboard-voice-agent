@@ -10,7 +10,9 @@
  */
 
 const CRON_SECRET = process.env.CRON_SECRET || "c7b9e0f34a81467295d2c88f115a3e9b";
-const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL || "http://localhost:3000";
+const isProdFlag = process.argv.includes("--prod") || process.argv.includes("--vercel");
+const VERCEL_PRODUCTION_URL = "https://dashboard-voice-agent-git-main-shauryap001s-projects.vercel.app";
+const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL || (isProdFlag ? VERCEL_PRODUCTION_URL : "http://localhost:3000");
 
 let isRunning = false;
 
@@ -47,6 +49,7 @@ async function autoDialerTick() {
   }
 }
 
-console.log("[Auto-Dialer Daemon] Started. Continuously monitoring queue and auto-dialing every 8 seconds...");
+console.log(`[Auto-Dialer Daemon] Started. Target server: ${BASE_URL}`);
+console.log("[Auto-Dialer Daemon] Continuously monitoring queue and auto-dialing every 8 seconds...");
 setInterval(autoDialerTick, 8000);
 autoDialerTick();

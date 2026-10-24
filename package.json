@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "next dev",
     "dialer": "node scripts/auto-dialer.mjs",
+    "dialer:prod": "node scripts/auto-dialer.mjs --prod",
     "build": "next build",
     "start": "next start",
     "test": "node --test"
